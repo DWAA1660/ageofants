@@ -1036,7 +1036,7 @@
 
     window.connectNet = function() {
         const urlInput = document.getElementById('net-url-input');
-        const url = urlInput ? urlInput.value : 'ws://localhost:3361';
+        const url = urlInput ? urlInput.value : 'ws://node24.lunes.host:3361';
         net.connect(url);
     };
 

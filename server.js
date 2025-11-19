@@ -12,7 +12,7 @@ const crypto = require('crypto');
 // and lobby manager. The browser clients are expected to handle the actual game
 // logic and use this server to synchronize state/commands.
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 3361;
 
 /**
  * Lobby structure:

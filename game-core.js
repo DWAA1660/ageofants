@@ -23,6 +23,20 @@
             this.difficulty = difficulty; // 1-10, affects AI aggression/efficiency
             this.aiCount = aiCount;
             this.teams = teams; // faction -> team number
+            this.localFaction = options.localFaction || 'player';
+            this.humanFactions = options.humanFactions || {};
+            if (!this.humanFactions[this.localFaction]) {
+                this.humanFactions[this.localFaction] = true;
+            }
+            this.net = window.net || null;
+            this.isNetworked = !!options.isNetworked;
+            this.isAuthoritative = !!options.isAuthoritative;
+            this.playerId = options.playerId || (this.net && this.net.playerId) || null;
+            this.tick = 0;
+            this.latestSnapshot = null;
+            this.entityById = {};
+            this.lastSnapshotSentAt = 0;
+            this.snapshotIntervalMs = 150;
             this.workerFocus = 'food';    // default focus for new player workers
             this.pendingBuild = null; // e.g. { type: 'anthill' }
             this.scoutMode = false;  // player-wide scout mode
@@ -49,7 +63,9 @@
             this.setupInput();
 
             // World Generation
-            this.initWorld();
+            if (!this.isNetworked || this.isAuthoritative) {
+                this.initWorld();
+            }
 
             // Loop
             this.frameCount = 0;
@@ -83,8 +99,16 @@
 
         loop() {
             this.frameCount++;
-            this.update();
+            this.tick++;
+            if (!this.isNetworked || this.isAuthoritative) {
+                this.update();
+            } else {
+                this.applyLatestSnapshot();
+            }
             this.draw();
+            if (this.isNetworked && this.isAuthoritative) {
+                this.maybeSendSnapshot();
+            }
             requestAnimationFrame(this.loop);
         }
 
@@ -95,7 +119,7 @@
             const h = this.canvas.height;
 
             // Spawn player Queen
-            this.spawnQueen(100, 100, 'player');
+            this.spawnQueen(100, 100, this.localFaction);
 
             // Up to 6 enemy factions placed around the map
             const aiFactions = ['enemy1', 'enemy2', 'enemy3', 'enemy4', 'enemy5', 'enemy6'];
@@ -120,17 +144,17 @@
             for(let i=0; i<15; i++) this.spawnResource('wood');
             for(let i=0; i<10; i++) this.spawnResource('stone');
 
-            // Starting Units
-            for(let i=0; i<5; i++) this.spawnAnt('worker', 'player', 120, 120 + i*5);
-            for(let i=0; i<2; i++) this.spawnAnt('soldier', 'player', 150, 120 + i*5);
+            // Starting Units for local player faction
+            for(let i=0; i<5; i++) this.spawnAnt('worker', this.localFaction, 120, 120 + i*5);
+            for(let i=0; i<2; i++) this.spawnAnt('soldier', this.localFaction, 150, 120 + i*5);
 
             // Difficulty scaling for AI economies and workers
             const diff = Math.max(1, Math.min(10, this.difficulty || 3));
 
-            // AI advantage: start each non-player queen with difficulty * 5 workers
+            // AI advantage: start each non-local queen with difficulty * 5 workers
             const startWorkers = diff * 5;
             this.queens.forEach(q => {
-                if (q.faction === 'player') return;
+                if (q.faction === this.localFaction) return;
                 for (let i=0; i<startWorkers; i++) {
                     // Free starting workers for AI: bypass cost checks
                     const ax = q.pos.x + (Math.random()-0.5)*60;
@@ -142,7 +166,7 @@
             // AI starting resources: scale with difficulty (e.g. level 10 ≈ 1000 of each)
             const baseStartRes = 100 * diff;
             this.queens.forEach(q => {
-                if (q.faction === 'player') return;
+                if (q.faction === this.localFaction) return;
                 q.resources.food = baseStartRes;
                 q.resources.wood = baseStartRes;
                 q.resources.stone = baseStartRes;
@@ -154,12 +178,13 @@
             q.team = this.getTeam(fac);
             this.queens.push(q);
             this.entities.push(q);
+            if (q.id != null) this.entityById[q.id] = q;
         }
 
         spawnBuilding(x, y, fac, type='anthill') {
             const costWood = 500;
 
-            if (fac === 'player') {
+            if (fac === this.localFaction) {
                 if (this.playerResources.wood < costWood) {
                     this.ui.notify("Not enough wood for Anthill (500🪵)", true);
                     return null;
@@ -173,13 +198,29 @@
 
             const b = new Building(x, y, fac, type, this);
             this.entities.push(b);
+            if (b.id != null) this.entityById[b.id] = b;
             return b;
         }
 
         spawnAnt(type, fac='player', x=null, y=null) {
             const cost = C.costs[type];
             
-            if (fac === 'player') {
+            if (this.isNetworked && !this.isAuthoritative && this.net && this.net.connected && this.net.code) {
+                if (fac !== this.localFaction) return;
+                this.net.send({
+                    type: 'GAME_MESSAGE',
+                    data: {
+                        kind: 'COMMAND',
+                        commandType: 'SPAWN',
+                        playerId: this.playerId,
+                        faction: fac,
+                        unitType: type
+                    }
+                });
+                return;
+            }
+
+            if (fac === this.localFaction) {
                 if (this.playerResources.food < cost.food || 
                     this.playerResources.wood < cost.wood || 
                     this.playerResources.stone < cost.stone) {
@@ -207,13 +248,14 @@
             const ay = y || q.pos.y + (Math.random()-0.5)*40;
             
             const ant = new Ant(ax, ay, fac, type, this);
-            // Apply default worker focus for player workers
-            if (fac === 'player' && type === 'worker') {
+            // Apply default worker focus for local-player workers
+            if (fac === this.localFaction && type === 'worker') {
                 if (this.workerFocus === 'food') ant.job = 'farmer';
                 else if (this.workerFocus === 'wood') ant.job = 'lumberjack';
                 else if (this.workerFocus === 'stone') ant.job = 'miner';
             }
             this.entities.push(ant);
+            if (ant.id != null) this.entityById[ant.id] = ant;
         }
 
         spawnResource(type) {
@@ -226,7 +268,9 @@
             if (r < 0.55) randomType = 'food';       // ~55%
             else if (r < 0.8) randomType = 'wood';   // ~25%
             else randomType = 'stone';               // ~20%
-            this.entities.push(new Resource(x, y, type || randomType));
+            const res = new Resource(x, y, type || randomType);
+            this.entities.push(res);
+            if (res.id != null) this.entityById[res.id] = res;
         }
 
         buildAnthill() {
@@ -246,7 +290,21 @@
                 if (e.button === 0) {
                     // If we are in a building placement mode, place the building instead of starting selection
                     if (this.pendingBuild && this.pendingBuild.type === 'anthill') {
-                        this.spawnBuilding(p.x, p.y, 'player', 'anthill');
+                        if (this.isNetworked && !this.isAuthoritative && this.net && this.net.connected && this.net.code) {
+                            this.net.send({
+                                type: 'GAME_MESSAGE',
+                                data: {
+                                    kind: 'COMMAND',
+                                    commandType: 'BUILD',
+                                    playerId: this.playerId,
+                                    faction: this.localFaction,
+                                    buildType: 'anthill',
+                                    pos: { x: p.x, y: p.y }
+                                }
+                            });
+                        } else {
+                            this.spawnBuilding(p.x, p.y, this.localFaction, 'anthill');
+                        }
                         this.pendingBuild = null;
                     } else {
                         this.dragStart = p;
@@ -278,7 +336,7 @@
             if (d < 10) {
                 // Single Click
                 const clicked = this.entities.find(e => e.pos.dist(end) < e.radius + 10 && !e.markedForDeletion);
-                if (clicked && clicked.faction === 'player') {
+                if (clicked && clicked.faction === this.localFaction) {
                     if (clicked instanceof Queen) {
                         // Open Queen Hatchery Menu
                         document.getElementById('context-menu').classList.remove('hidden');
@@ -295,7 +353,7 @@
                 const y1=Math.min(start.y,end.y), y2=Math.max(start.y,end.y);
                 
                 this.entities.forEach(e => {
-                    if (e instanceof Ant && e.faction === 'player' && !e.markedForDeletion) {
+                    if (e instanceof Ant && e.faction === this.localFaction && !e.markedForDeletion) {
                         if (e.pos.x > x1 && e.pos.x < x2 && e.pos.y > y1 && e.pos.y < y2) {
                             this.selectedEntities.push(e);
                         }
@@ -308,6 +366,27 @@
         handleCommand(pos) {
             if (this.selectedEntities.length === 0) return;
 
+            if (this.isNetworked && !this.isAuthoritative && this.net && this.net.connected && this.net.code) {
+                const payload = {
+                    kind: 'COMMAND',
+                    commandType: 'RIGHT_CLICK',
+                    playerId: this.playerId,
+                    faction: this.localFaction,
+                    pos: { x: pos.x, y: pos.y },
+                    selectedIds: this.selectedEntities.map(e => e.id)
+                };
+                this.net.send({ type: 'GAME_MESSAGE', data: payload });
+                this.createParticles(pos.x, pos.y, 'white', 5);
+                this.ui.notify(`Issued command to ${this.selectedEntities.length} ants.`);
+                return;
+            }
+
+            this.issueLocalCommand(pos, this.selectedEntities);
+        }
+
+        issueLocalCommand(pos, selection) {
+            if (!selection || selection.length === 0) return;
+
             let target = null;
             // Hit detection (prioritize enemies/resources)
             for(const e of this.entities) {
@@ -318,7 +397,7 @@
             }
 
             let commandIssued = false;
-            this.selectedEntities.forEach(ant => {
+            selection.forEach(ant => {
                 ant.state = 'IDLE';
 
                 if (target) {
@@ -336,7 +415,7 @@
                         ant.state = 'GATHER';
                         commandIssued = true;
                     } else if (target.faction) {
-                        const myTeam = this.getTeam('player');
+                        const myTeam = this.getTeam(this.localFaction);
                         const targetTeam = this.getTeam(target.faction);
                         if (targetTeam == null || myTeam == null || targetTeam !== myTeam) {
                             // ATTACK command vs enemy team
@@ -376,8 +455,170 @@
 
             if (commandIssued) {
                 this.createParticles(pos.x, pos.y, 'white', 5);
-                this.ui.notify(`Issued command to ${this.selectedEntities.length} ants.`);
+                this.ui.notify(`Issued command to ${selection.length} ants.`);
             }
+        }
+
+        handleNetMessage(msg) {
+            const data = msg && msg.data ? msg.data : null;
+            if (!data) return;
+            if (data.kind === 'COMMAND') {
+                if (!this.isAuthoritative) return;
+                const cmdType = data.commandType || 'RIGHT_CLICK';
+                if (cmdType === 'SPAWN') {
+                    const fac = data.faction || this.localFaction;
+                    const unitType = data.unitType || 'worker';
+                    this.spawnAnt(unitType, fac);
+                    return;
+                }
+                if (cmdType === 'BUILD') {
+                    const fac = data.faction || this.localFaction;
+                    const buildType = data.buildType || 'anthill';
+                    const posData = data.pos || { x: 0, y: 0 };
+                    this.spawnBuilding(posData.x, posData.y, fac, buildType);
+                    return;
+                }
+                const posData = data.pos || { x: 0, y: 0 };
+                const pos = new Vector(posData.x, posData.y);
+                const ids = data.selectedIds || [];
+                const selection = ids.map(id => this.entityById[id]).filter(e => !!e);
+                this.issueLocalCommand(pos, selection);
+            } else if (data.kind === 'SNAPSHOT') {
+                if (!this.isNetworked || this.isAuthoritative) return;
+                this.latestSnapshot = data.snapshot || null;
+            }
+        }
+
+        maybeSendSnapshot() {
+            if (!this.net || !this.net.connected || !this.net.code) return;
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            if (now - this.lastSnapshotSentAt < this.snapshotIntervalMs) return;
+            this.lastSnapshotSentAt = now;
+
+            const factionResources = {};
+            this.queens.forEach(q => {
+                let res;
+                if (q.faction === this.localFaction) {
+                    res = this.playerResources;
+                } else {
+                    res = q.resources;
+                }
+                factionResources[q.faction] = {
+                    food: res.food,
+                    wood: res.wood,
+                    stone: res.stone
+                };
+            });
+
+            const entitiesSnap = this.entities.map(e => {
+                let kind = 'other';
+                let type = null;
+                if (e instanceof Ant) {
+                    kind = 'ant';
+                    type = e.type;
+                } else if (e instanceof Queen) {
+                    kind = 'queen';
+                } else if (e instanceof Resource) {
+                    kind = 'resource';
+                    type = e.type;
+                } else if (e instanceof Building) {
+                    kind = 'building';
+                    type = e.type;
+                }
+                return {
+                    id: e.id,
+                    kind,
+                    type,
+                    faction: e.faction || null,
+                    x: e.pos.x,
+                    y: e.pos.y,
+                    hp: typeof e.hp === 'number' ? e.hp : null,
+                    amount: e instanceof Resource ? e.amount : null
+                };
+            });
+
+            const snapshot = {
+                tick: this.tick,
+                entities: entitiesSnap,
+                factionResources,
+                localFaction: this.localFaction
+            };
+
+            this.net.send({
+                type: 'GAME_MESSAGE',
+                data: {
+                    kind: 'SNAPSHOT',
+                    snapshot
+                }
+            });
+        }
+
+        applyLatestSnapshot() {
+            const snap = this.latestSnapshot;
+            if (!snap) return;
+
+            const prevSelectedIds = this.selectedEntities.map(e => e.id);
+            const idMap = {};
+            const newEntities = [];
+            const newQueens = [];
+
+            const entitiesData = snap.entities || [];
+            entitiesData.forEach(se => {
+                if (se == null || se.id == null) return;
+                let ent = this.entityById[se.id];
+                if (!ent) {
+                    const fx = se.faction || 'enemy1';
+                    if (se.kind === 'queen') {
+                        ent = new Queen(se.x, se.y, fx, se.id);
+                    } else if (se.kind === 'ant') {
+                        ent = new Ant(se.x, se.y, fx, se.type || 'worker', this, se.id);
+                    } else if (se.kind === 'resource') {
+                        ent = new Resource(se.x, se.y, se.type || 'food', se.id);
+                    } else if (se.kind === 'building') {
+                        ent = new Building(se.x, se.y, fx, se.type || 'anthill', this, se.id);
+                    } else {
+                        return;
+                    }
+                } else {
+                    ent.pos.x = se.x;
+                    ent.pos.y = se.y;
+                }
+
+                if (typeof se.hp === 'number' && ent.hp != null) {
+                    ent.hp = se.hp;
+                }
+                if (se.kind === 'resource' && typeof se.amount === 'number') {
+                    ent.amount = se.amount;
+                }
+
+                newEntities.push(ent);
+                idMap[ent.id] = ent;
+                if (ent instanceof Queen) newQueens.push(ent);
+            });
+
+            this.entities = newEntities;
+            this.queens = newQueens;
+            this.entityById = idMap;
+
+            const factionResources = snap.factionResources || {};
+            const myRes = factionResources[this.localFaction] || { food: 0, wood: 0, stone: 0 };
+            this.playerResources = {
+                food: myRes.food || 0,
+                wood: myRes.wood || 0,
+                stone: myRes.stone || 0
+            };
+
+            const pop = this.entities.filter(e => e instanceof Ant && e.faction === this.localFaction).length;
+            const foodEl = document.getElementById('res-food');
+            if (foodEl) foodEl.innerText = Math.floor(this.playerResources.food);
+            const woodEl = document.getElementById('res-wood');
+            if (woodEl) woodEl.innerText = Math.floor(this.playerResources.wood);
+            const stoneEl = document.getElementById('res-stone');
+            if (stoneEl) stoneEl.innerText = Math.floor(this.playerResources.stone);
+            const popEl = document.getElementById('res-pop');
+            if (popEl) popEl.innerText = pop;
+
+            this.selectedEntities = prevSelectedIds.map(id => idMap[id]).filter(e => !!e);
         }
 
         // AI Logic for Enemy Factions
@@ -391,10 +632,12 @@
             const waveInterval = Math.max(240, baseWaveInterval - diff * 60); // harder = more frequent
             const baseWaveSize = 4;
 
-            const playerQueen = this.queens.find(qq => qq.faction === 'player' && !qq.markedForDeletion);
+            const playerQueen = this.queens.find(qq => qq.faction === this.localFaction && !qq.markedForDeletion);
 
             this.queens.forEach(q => {
-                if (q.faction === 'player' || q.markedForDeletion) return;
+                if (q.markedForDeletion) return;
+
+                if (this.humanFactions && this.humanFactions[q.faction]) return;
                 
                 const r = q.resources;
                 const myAnts = this.entities.filter(e => e instanceof Ant && e.faction === q.faction);
@@ -449,7 +692,7 @@
 
                 // 3. Coordinated attack waves toward the player's team from any non-player faction
                 //    Do not allow waves in the first ~20 seconds to give the player a grace period.
-                const playerTeam = this.getTeam('player');
+                const playerTeam = this.getTeam(this.localFaction);
                 const qTeam = this.getTeam(q.faction);
                 const globalTargetQueen = playerQueen && qTeam !== playerTeam ? playerQueen : null;
                 if (globalTargetQueen && this.frameCount >= 20 * 60 && this.frameCount % waveInterval === 0) {
@@ -480,6 +723,9 @@
             this.entities.forEach(e => { if(e.update) e.update(); });
             this.entities = this.entities.filter(e => !e.markedForDeletion);
             this.selectedEntities = this.selectedEntities.filter(e => !e.markedForDeletion);
+            const map = {};
+            this.entities.forEach(e => { if (e.id != null) map[e.id] = e; });
+            this.entityById = map;
 
             // Particles Update
             this.particles.forEach(p => p.update());
@@ -489,7 +735,7 @@
             document.getElementById('res-food').innerText = Math.floor(this.playerResources.food);
             document.getElementById('res-wood').innerText = Math.floor(this.playerResources.wood);
             document.getElementById('res-stone').innerText = Math.floor(this.playerResources.stone);
-            document.getElementById('res-pop').innerText = this.entities.filter(e => e instanceof Ant && e.faction === 'player').length;
+            document.getElementById('res-pop').innerText = this.entities.filter(e => e instanceof Ant && e.faction === this.localFaction).length;
         }
 
         draw() {
@@ -571,20 +817,76 @@
     window.Game = Game;
 
     window.startGame = function() {
-        if (window.game) return; // Prevent double-start
+        if (window.game) return;
 
         const aiSelect = document.getElementById('ai-count-select');
         const diffSelect = document.getElementById('difficulty-select');
+        const colonySelect = document.getElementById('colony-select');
         const playerTeamSelect = document.getElementById('player-team-select');
         const aiTeamSelect = document.getElementById('ai-team-select');
         const aiCount = parseInt(aiSelect?.value || '3', 10);
         const difficulty = parseInt(diffSelect?.value || '3', 10);
 
+        const localFaction = colonySelect?.value || 'player';
         const playerTeam = parseInt(playerTeamSelect?.value || '1', 10);
         const aiTeam = parseInt(aiTeamSelect?.value || '2', 10);
 
-        // Build a simple faction->team map: player on chosen team, all AIs on chosen AI team
-        const teams = { player: playerTeam };
+        const netObj = window.net;
+        if (netObj && netObj.connected && netObj.code) {
+            // Online: only host can start; broadcast START_GAME so all clients share config.
+            if (!netObj.isHost) {
+                const statusEl = document.getElementById('net-status');
+                if (statusEl) statusEl.textContent = 'Waiting for host to start...';
+                return;
+            }
+
+            const allFactions = Object.keys(C.factions || {});
+            const playerFactions = {};
+            const humanFactions = {};
+
+            playerFactions[netObj.playerId] = localFaction;
+            humanFactions[localFaction] = true;
+
+            const otherPlayerIds = (netObj.players || []).filter(id => id !== netObj.playerId);
+            let idx = 0;
+            otherPlayerIds.forEach(id => {
+                while (idx < allFactions.length && (allFactions[idx] === localFaction || humanFactions[allFactions[idx]])) {
+                    idx++;
+                }
+                const fac = allFactions[idx];
+                if (!fac) return;
+                playerFactions[id] = fac;
+                humanFactions[fac] = true;
+                idx++;
+            });
+
+            const teams = {};
+            Object.keys(humanFactions).forEach(f => { teams[f] = playerTeam; });
+            const aiFactions = ['enemy1', 'enemy2', 'enemy3', 'enemy4', 'enemy5', 'enemy6'];
+            aiFactions.forEach(f => {
+                if (!humanFactions[f]) teams[f] = aiTeam;
+            });
+
+            netObj.send({
+                type: 'GAME_MESSAGE',
+                data: {
+                    kind: 'START_GAME',
+                    config: {
+                        aiCount,
+                        difficulty,
+                        teams,
+                        humanFactions,
+                        playerFactions,
+                        hostId: netObj.playerId
+                    }
+                }
+            });
+            return;
+        }
+
+        // Offline single-player
+        const teams = {};
+        teams[localFaction] = playerTeam;
         const aiFactions = ['enemy1', 'enemy2', 'enemy3', 'enemy4', 'enemy5', 'enemy6'];
         for (let i = 0; i < aiCount; i++) {
             const fac = aiFactions[i];
@@ -592,9 +894,159 @@
             teams[fac] = aiTeam;
         }
 
-        window.game = new Game({ aiCount, difficulty, teams });
+        const humanFactions = {};
+        humanFactions[localFaction] = true;
+
+        window.game = new Game({ aiCount, difficulty, teams, localFaction, humanFactions });
 
         const menu = document.getElementById('start-menu');
         if (menu) menu.classList.add('hidden');
+    };
+
+    const net = {
+        socket: null,
+        connected: false,
+        code: null,
+        playerId: null,
+        players: [],
+        isHost: false,
+        onGameMessage: null,
+        connect(url) {
+            if (this.socket && this.connected) {
+                this.updateUI();
+                return;
+            }
+            try {
+                const ws = new WebSocket(url);
+                this.socket = ws;
+                const self = this;
+                ws.onopen = function() {
+                    self.connected = true;
+                    self.updateUI();
+                };
+                ws.onclose = function() {
+                    self.connected = false;
+                    self.code = null;
+                    self.playerId = null;
+                    self.players = [];
+                    self.isHost = false;
+                    self.updateUI();
+                };
+                ws.onmessage = function(evt) {
+                    let msg;
+                    try {
+                        msg = JSON.parse(evt.data);
+                    } catch (e) {
+                        return;
+                    }
+                    const t = msg.type;
+                    if (t === 'LOBBY_CREATED') {
+                        self.code = msg.code;
+                        self.playerId = msg.playerId;
+                        self.isHost = true;
+                        self.players = [msg.playerId];
+                    } else if (t === 'LOBBY_JOINED') {
+                        self.code = msg.code;
+                        self.playerId = msg.playerId;
+                        self.isHost = false;
+                    } else if (t === 'LOBBY_PLAYERS') {
+                        self.players = msg.players || [];
+                    } else if (t === 'PLAYER_JOINED') {
+                        if (!self.players.includes(msg.playerId)) self.players.push(msg.playerId);
+                    } else if (t === 'PLAYER_LEFT') {
+                        self.players = self.players.filter(id => id !== msg.playerId);
+                    } else if (t === 'GAME_MESSAGE') {
+                        if (typeof self.onGameMessage === 'function') {
+                            self.onGameMessage(msg);
+                        }
+                    }
+                    self.updateUI();
+                };
+            } catch (e) {
+                this.connected = false;
+                this.updateUI();
+            }
+        },
+        send(obj) {
+            if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+            this.socket.send(JSON.stringify(obj));
+        },
+        hostLobby() {
+            if (!this.socket || !this.connected) return;
+            this.send({ type: 'CREATE_LOBBY' });
+        },
+        joinLobby(code) {
+            if (!this.socket || !this.connected) return;
+            if (!code) return;
+            this.send({ type: 'JOIN_LOBBY', code: code.toUpperCase() });
+        },
+        updateUI() {
+            const statusEl = document.getElementById('net-status');
+            const codeEl = document.getElementById('net-code');
+            const idEl = document.getElementById('net-player-id');
+            const playersEl = document.getElementById('net-players');
+            if (statusEl) statusEl.textContent = this.connected ? 'Connected' : 'Offline';
+            if (codeEl) codeEl.textContent = this.code || '-';
+            if (idEl) idEl.textContent = this.playerId || '-';
+            if (playersEl) playersEl.textContent = this.players.length ? this.players.join(', ') : '-';
+        }
+    };
+
+    net.onGameMessage = function(msg) {
+        const data = msg && msg.data ? msg.data : null;
+        if (!data) return;
+        if (data.kind === 'START_GAME') {
+            const cfg = data.config || {};
+            const aiCount = cfg.aiCount || 0;
+            const difficulty = cfg.difficulty || 3;
+            const teams = cfg.teams || {};
+            const humanFactions = cfg.humanFactions || {};
+            const playerFactions = cfg.playerFactions || {};
+            const hostId = cfg.hostId;
+
+            const localFaction = playerFactions[this.playerId] || 'player';
+            const isAuthoritative = !!hostId && hostId === this.playerId;
+
+            if (window.game) {
+                try { location.reload(); } catch (e) {}
+                return;
+            }
+
+            window.game = new Game({
+                aiCount,
+                difficulty,
+                teams,
+                localFaction,
+                humanFactions,
+                isNetworked: true,
+                isAuthoritative,
+                playerId: this.playerId
+            });
+
+            const menu = document.getElementById('start-menu');
+            if (menu) menu.classList.add('hidden');
+        } else {
+            if (window.game && typeof window.game.handleNetMessage === 'function') {
+                window.game.handleNetMessage(msg);
+            }
+        }
+    };
+
+    window.net = net;
+
+    window.connectNet = function() {
+        const urlInput = document.getElementById('net-url-input');
+        const url = urlInput ? urlInput.value : 'ws://localhost:4000';
+        net.connect(url);
+    };
+
+    window.netHostLobby = function() {
+        net.hostLobby();
+    };
+
+    window.netJoinLobby = function() {
+        const input = document.getElementById('net-join-code-input');
+        const code = input ? input.value.trim() : '';
+        net.joinLobby(code);
     };
 })();

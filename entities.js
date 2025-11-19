@@ -2,11 +2,16 @@
 // Depends on global C and Vector.
 
 class Entity {
-    constructor(x, y, radius, color) {
+    constructor(x, y, radius, color, id) {
         this.pos = new Vector(x, y);
         this.radius = radius;
         this.color = color;
         this.markedForDeletion = false;
+
+        if (typeof Entity._nextId !== 'number') {
+            Entity._nextId = 1;
+        }
+        this.id = id != null ? id : Entity._nextId++;
     }
     draw(ctx) {
         ctx.beginPath();
@@ -17,9 +22,9 @@ class Entity {
 }
 
 class Resource extends Entity {
-    constructor(x, y, type) {
+    constructor(x, y, type, id) {
         const cfg = C.resources[type];
-        super(x, y, cfg.radius, cfg.color);
+        super(x, y, cfg.radius, cfg.color, id);
         this.type = type;
         this.amount = cfg.yield;
         this.maxAmount = cfg.yield;
@@ -60,8 +65,8 @@ class Resource extends Entity {
 }
 
 class Queen extends Entity {
-    constructor(x, y, faction) {
-        super(x, y, 14, C.factions[faction].dark);
+    constructor(x, y, faction, id) {
+        super(x, y, 14, C.factions[faction].dark, id);
         this.faction = faction;
         this.team = C.factions[faction].team != null ? C.factions[faction].team : 0;
         this.hp = 1000;
@@ -81,7 +86,7 @@ class Queen extends Entity {
         ctx.translate(this.pos.x, this.pos.y);
         
         // Selection Ring
-        if (this.faction === 'player' && game.selectedEntities.includes(this)) {
+        if (this.faction === game.localFaction && game.selectedEntities.includes(this)) {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; ctx.lineWidth = 2;
             ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI*2); ctx.stroke();
         }
@@ -105,15 +110,15 @@ class Queen extends Entity {
         game.createParticles(this.pos.x, this.pos.y, 'red', 10);
         if (this.hp <= 0) {
             this.markedForDeletion = true;
-            if (this.faction === 'player') game.gameOver(false);
+            if (this.faction === game.localFaction) game.gameOver(false);
             else game.ui.notify(`${C.factions[this.faction].name} Queen defeated!`, false);
         }
     }
 }
 
 class Ant extends Entity {
-    constructor(x, y, faction, type, gameInstance) {
-        super(x, y, 0, C.factions[faction].color);
+    constructor(x, y, faction, type, gameInstance, id) {
+        super(x, y, 0, C.factions[faction].color, id);
         this.faction = faction;
         this.type = type; // worker, soldier, elite
         this.game = gameInstance;
@@ -216,7 +221,7 @@ class Ant extends Entity {
                     }
                 } else if (queen) {
                     // Default behavior: wander; if scout is on for this faction, roam wider across the map
-                    const factionScout = (this.game.scoutMode && this.faction === 'player') || this.game.aiScout[this.faction];
+                    const factionScout = (this.game.scoutMode && this.faction === this.game.localFaction) || this.game.aiScout[this.faction];
                     const distToQueen = this.pos.dist(queen.pos);
                     if (!factionScout && distToQueen > 300) {
                         // Defensive radius around queen when not scouting
@@ -377,7 +382,7 @@ class Ant extends Entity {
                 // Deliver logic
                 if (this.carrying) {
                     const q = this.target; // Queen
-                    if (this.faction === 'player') {
+                    if (this.faction === this.game.localFaction) {
                         this.game.playerResources[this.carrying.type] += 5;
                         this.game.ui.spawnFloatText(`+5${C.resources[this.carrying.type].symbol}`, this.pos.x, this.pos.y, C.resources[this.carrying.type].color);
                     } else {
@@ -402,7 +407,7 @@ class Ant extends Entity {
         ctx.translate(this.pos.x, this.pos.y);
         
         // Selection Ring
-        if (this.faction === 'player' && game.selectedEntities.includes(this)) {
+        if (this.faction === this.game.localFaction && game.selectedEntities.includes(this)) {
             ctx.strokeStyle = this.state === 'ATTACK' ? 'red' : '#fff'; 
             ctx.lineWidth = 1.5;
             ctx.beginPath(); ctx.arc(0, 0, this.radius + 4, 0, Math.PI*2); ctx.stroke();
@@ -476,8 +481,8 @@ class Particle {
 }
 
 class Building extends Entity {
-    constructor(x, y, faction, type, gameInstance) {
-        super(x, y, 10, C.factions[faction].dark);
+    constructor(x, y, faction, type, gameInstance, id) {
+        super(x, y, 10, C.factions[faction].dark, id);
         this.faction = faction;
         this.type = type; // 'anthill'
         this.game = gameInstance;

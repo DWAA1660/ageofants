@@ -42,6 +42,14 @@
                     <p class="text-[10px] text-gray-400 mt-1">Higher levels give enemy queens more starting workers, resources, and aggression.</p>
                 </div>
 
+                <div>
+                    <label for="colony-select" class="block text-gray-300 mb-1 font-semibold text-xs uppercase tracking-wide">Your Colony</label>
+                    <select id="colony-select" class="w-full bg-black/60 border border-white/20 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="player" selected>Blue Empire (Blue)</option>
+                        <option value="player2">Golden Colony (Gold)</option>
+                    </select>
+                </div>
+
                 <div class="grid grid-cols-2 gap-3 text-xs">
                     <div>
                         <label for="player-team-select" class="block text-gray-300 mb-1 font-semibold uppercase tracking-wide">Your Team</label>
@@ -60,6 +68,29 @@
                             <option value="3">Team 3</option>
                             <option value="4">Team 4</option>
                         </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-2 space-y-2 text-xs border-t border-white/10 pt-3">
+                <div class="flex items-center justify-between">
+                    <span class="font-semibold uppercase tracking-wide text-gray-300">Online (Experimental)</span>
+                    <span id="net-status" class="text-[10px] text-gray-400">Offline</span>
+                </div>
+                <div class="flex flex-col gap-2">
+                    <div class="flex gap-2">
+                        <input id="net-url-input" class="flex-1 bg-black/60 border border-white/20 rounded-lg px-2 py-1 text-[10px] focus:outline-none focus:ring-2 focus:ring-blue-500" value="ws://localhost:4000" />
+                        <button onclick="window.connectNet()" class="bg-sky-600 hover:bg-sky-700 text-white px-2 py-1 rounded-lg text-[10px] font-semibold">Connect</button>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="window.netHostLobby()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-lg text-[10px] font-semibold">Host Game</button>
+                        <input id="net-join-code-input" class="w-20 bg-black/60 border border-white/20 rounded-lg px-2 py-1 text-[10px] uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="CODE" />
+                        <button onclick="window.netJoinLobby()" class="bg-amber-600 hover:bg-amber-700 text-white px-2 py-1 rounded-lg text-[10px] font-semibold">Join</button>
+                    </div>
+                    <div class="text-[10px] text-gray-400 space-y-0.5">
+                        <div>Lobby Code: <span id="net-code">-</span></div>
+                        <div>Your ID: <span id="net-player-id">-</span></div>
+                        <div>Players: <span id="net-players">-</span></div>
                     </div>
                 </div>
             </div>

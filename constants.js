@@ -3,8 +3,9 @@
 
 window.C = {
     factions: {
-        player: { color: '#3b82f6', dark: '#1d4ed8', name: "Blue Empire", team: 1 },
-        ally:   { color: '#22d3ee', dark: '#0e7490', name: "River Tribe", team: 1 },
+        player:  { color: '#3b82f6', dark: '#1d4ed8', name: "Blue Empire", team: 1 },
+        player2: { color: '#facc15', dark: '#ca8a04', name: "Golden Colony", team: 1 },
+        ally:    { color: '#22d3ee', dark: '#0e7490', name: "River Tribe", team: 1 },
         enemy1: { color: '#ef4444', dark: '#b91c1c', name: "Fire Clan", team: 2 },
         enemy2: { color: '#a855f7', dark: '#7e22ce', name: "Void Swarm", team: 2 },
         enemy3: { color: '#f97316', dark: '#c2410c', name: "Ember Brood", team: 2 },

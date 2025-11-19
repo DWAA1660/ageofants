@@ -1,0 +1,13 @@
+{
+  "name": "ant-empire-multiplayer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ant Empire game with optional Node.js WebSocket backend for multiplayer lobbies.",
+  "main": "server.js",
+  "scripts": {
+    "start:server": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.17.0"
+  }
+}

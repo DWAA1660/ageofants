@@ -173,8 +173,6 @@
             for(let i=0; i<10; i++) this.spawnResource('stone');
 
             // Starting Units for local player faction
-            for(let i=0; i<5; i++) this.spawnAnt('worker', this.localFaction, 120, 120 + i*5);
-            for(let i=0; i<2; i++) this.spawnAnt('soldier', this.localFaction, 150, 120 + i*5);
 
             // Difficulty scaling for AI economies and workers
             const diff = Math.max(1, Math.min(10, this.difficulty || 3));
@@ -183,7 +181,20 @@
             const isHumanFaction = (fac) => !!(this.humanFactions && this.humanFactions[fac]);
             const startWorkers = diff * 5;
             this.queens.forEach(q => {
-                if (isHumanFaction(q.faction)) return;
+                if (isHumanFaction(q.faction)) {
+                    // Free starting units for human factions: 5 workers + 2 soldiers
+                    for (let i=0; i<5; i++) {
+                        const ax = q.pos.x + (Math.random()-0.5)*40;
+                        const ay = q.pos.y + (Math.random()-0.5)*40;
+                        this.entities.push(new Ant(ax, ay, q.faction, 'worker', this));
+                    }
+                    for (let i=0; i<2; i++) {
+                        const ax = q.pos.x + 30 + (Math.random()-0.5)*40;
+                        const ay = q.pos.y + (Math.random()-0.5)*40;
+                        this.entities.push(new Ant(ax, ay, q.faction, 'soldier', this));
+                    }
+                    return;
+                }
                 for (let i=0; i<startWorkers; i++) {
                     // Free starting workers for AI: bypass cost checks
                     const ax = q.pos.x + (Math.random()-0.5)*60;
@@ -738,6 +749,7 @@
                 const elites = myAnts.filter(a => a.type === 'elite').length;
 
                 const myBuildings = this.entities.filter(e => e instanceof Building && e.faction === q.faction);
+                const hasAnthill = myBuildings.some(b => b.type === 'anthill');
 
                 // Target composition scales with difficulty
                 const targetWorkers  = 12 + diff * 3;               // heavier eco at higher diff
@@ -748,21 +760,23 @@
                 if (workers < targetWorkers && r.food >= C.costs.worker.food) {
                     // When very poor, only build workers
                     this.spawnAnt('worker', q.faction);
-                } else if (soldiers < targetSoldiers && r.food >= C.costs.soldier.food && r.wood >= C.costs.soldier.wood) {
+                } else if (hasAnthill && soldiers < targetSoldiers && r.food >= C.costs.soldier.food && r.wood >= C.costs.soldier.wood) {
                     this.spawnAnt('soldier', q.faction);
                     // If very rich, build an extra soldier in the same tick
-                    if (r.food > 4 * C.costs.soldier.food && r.wood > 4 * C.costs.soldier.wood && diff >= 7) {
+                    if (hasAnthill && r.food > 4 * C.costs.soldier.food && r.wood > 4 * C.costs.soldier.wood && diff >= 7) {
                         this.spawnAnt('soldier', q.faction);
                     }
-                } else if (elites < targetElites && r.food >= C.costs.elite.food && r.wood >= C.costs.elite.wood && r.stone >= C.costs.elite.stone) {
+                } else if (hasAnthill && elites < targetElites && r.food >= C.costs.elite.food && r.wood >= C.costs.elite.wood && r.stone >= C.costs.elite.stone) {
                     this.spawnAnt('elite', q.faction);
-                } else if (diff >= 7 && r.food > 3 * C.costs.soldier.food && r.wood > 3 * C.costs.soldier.wood) {
+                } else if (hasAnthill && diff >= 7 && r.food > 3 * C.costs.soldier.food && r.wood > 3 * C.costs.soldier.wood) {
                     // On very hard, dump excess into extra soldiers when rich
                     this.spawnAnt('soldier', q.faction);
                 }
 
                 // 1b. Strategic buildings: AI builds anthills when it has enough wood and few anthills
-                if (diff >= 5 && myBuildings.length < Math.ceil(diff / 3) && r.wood >= 500) {
+                const needFirstAnthill = myBuildings.length === 0;
+                const needMoreAnthills = diff >= 5 && myBuildings.length < Math.ceil(diff / 3);
+                if ((needFirstAnthill || needMoreAnthills) && r.wood >= 500) {
                     const offsetX = (Math.random()-0.5) * 80;
                     const offsetY = (Math.random()-0.5) * 80;
                     this.spawnBuilding(q.pos.x + offsetX, q.pos.y + offsetY, q.faction, 'anthill');

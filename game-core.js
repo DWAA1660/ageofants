@@ -43,6 +43,7 @@
             this.activeAnthillId = null; // currently selected anthill (for manual spawns)
             this.scoutMode = false;  // player-wide scout mode
             this.aiScout = {};       // per-faction scout mode for AI
+            this.sprites = { bgDirt: null, ant_worker: null, ant_soldier: null, ant_elite: null };
             
             // UI Helpers - defined early so other methods can use them
             this.ui = {
@@ -74,6 +75,7 @@
                 playerId: this.playerId,
             });
             this.workerFocusByFaction[this.localFaction] = this.workerFocus;
+            this.loadSprites();
 
             // Input
             this.dragStart = null;
@@ -126,6 +128,19 @@
                     }
                 });
             }
+        }
+
+        loadSprites() {
+            if (!this.sprites) this.sprites = {};
+            const make = (key, src) => {
+                const img = new Image();
+                img.src = src;
+                this.sprites[key] = img;
+            };
+            make('bgDirt', 'sprites/dirt.png');
+            make('ant_worker', 'sprites/ant-worker.png');
+            make('ant_soldier', 'sprites/ant-soldier.png');
+            make('ant_elite', 'sprites/ant-elite.png');
         }
 
         loop() {
@@ -998,25 +1013,34 @@
         }
 
         draw() {
-            // 1. BG (Dirt/Soil)
-            this.ctx.fillStyle = '#3a2e26';
-            this.ctx.fillRect(0,0,this.canvas.width, this.canvas.height);
-            
-            // 2. Grid (Subtle)
-            this.ctx.strokeStyle = '#4a3b32'; this.ctx.lineWidth = 1;
-            this.ctx.beginPath();
-            for(let i=0; i<this.canvas.width; i+=40) { this.ctx.moveTo(i,0); this.ctx.lineTo(i,this.canvas.height); }
-            for(let i=0; i<this.canvas.height; i+=40) { this.ctx.moveTo(0,i); this.ctx.lineTo(this.canvas.width,i); }
-            this.ctx.stroke();
+            // 1. Background (dirt sprite or fallback solid)
+            const bg = this.sprites && this.sprites.bgDirt;
+            if (bg && bg.complete && bg.naturalWidth > 0 && bg.naturalHeight > 0) {
+                const tW = bg.width;
+                const tH = bg.height;
+                for (let y = 0; y < this.canvas.height; y += tH) {
+                    for (let x = 0; x < this.canvas.width; x += tW) {
+                        this.ctx.drawImage(bg, x, y, tW, tH);
+                    }
+                }
+            } else {
+                this.ctx.fillStyle = '#3a2e26';
+                this.ctx.fillRect(0,0,this.canvas.width, this.canvas.height);
+                this.ctx.strokeStyle = '#4a3b32'; this.ctx.lineWidth = 1;
+                this.ctx.beginPath();
+                for(let i=0; i<this.canvas.width; i+=40) { this.ctx.moveTo(i,0); this.ctx.lineTo(i,this.canvas.height); }
+                for(let i=0; i<this.canvas.height; i+=40) { this.ctx.moveTo(0,i); this.ctx.lineTo(this.canvas.width,i); }
+                this.ctx.stroke();
+            }
 
-            // 3. Entities (Y-sort for depth effect)
+            // 2. Entities (Y-sort for depth effect)
             this.entities.sort((a,b) => a.pos.y - b.pos.y);
             this.entities.forEach(e => e.draw(this.ctx));
 
-            // 4. Particles
+            // 3. Particles
             this.particles.forEach(p => p.draw(this.ctx));
 
-            // 5. Drag Box
+            // 4. Drag Box
             if (this.dragStart && this.currDrag) {
                 const s = this.dragStart; const e = this.currDrag;
                 const x = Math.min(s.x,e.x); const y = Math.min(s.y,e.y);

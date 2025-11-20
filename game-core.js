@@ -427,6 +427,24 @@
                 
                 // Prioritize own units (Ants/Queens)
                 let clicked = candidates.find(e => e.faction === this.localFaction);
+
+                // Fallback: if no local entity was picked, check directly against local queen position
+                if ((!clicked || !(this.queens && this.queens.includes(clicked))) && this.queens && this.queens.length) {
+                    const localQueen = this.queens.find(q => q.faction === this.localFaction && !q.markedForDeletion);
+                    if (localQueen) {
+                        const dq = localQueen.pos.dist(end);
+                        console.log('[DEBUG] handleSelect local queen check', {
+                            clickPos: { x: end.x, y: end.y },
+                            queenPos: { x: localQueen.pos.x, y: localQueen.pos.y },
+                            distance: dq,
+                            threshold: localQueen.radius + 20,
+                            localFaction: this.localFaction
+                        });
+                        if (dq < localQueen.radius + 20) {
+                            clicked = localQueen;
+                        }
+                    }
+                }
                 
                 // Fallback: if no own unit, take the closest one (could be enemy or resource)
                 if (!clicked && candidates.length > 0) {

@@ -38,6 +38,7 @@
             this.lastSnapshotSentAt = 0;
             this.snapshotIntervalMs = 150;
             this.workerFocus = 'food';    // default focus for new player workers
+            this.workerFocusByFaction = {};
             this.pendingBuild = null; // e.g. { type: 'anthill' }
             this.scoutMode = false;  // player-wide scout mode
             this.aiScout = {};       // per-faction scout mode for AI
@@ -66,6 +67,7 @@
                 difficulty: this.difficulty,
                 playerId: this.playerId,
             });
+            this.workerFocusByFaction[this.localFaction] = this.workerFocus;
 
             // Input
             this.dragStart = null;
@@ -103,8 +105,21 @@
         setWorkerFocus(resource) {
             if (!['food','wood','stone'].includes(resource)) return;
             this.workerFocus = resource;
+            if (!this.workerFocusByFaction) this.workerFocusByFaction = {};
+            this.workerFocusByFaction[this.localFaction] = resource;
             const label = resource === 'food' ? 'Food' : resource === 'wood' ? 'Wood' : 'Stone';
             this.ui.notify(`New workers will focus ${label}.`);
+
+            if (this.isNetworked && this.net && this.net.connected && this.net.code) {
+                this.net.send({
+                    type: 'GAME_MESSAGE',
+                    data: {
+                        kind: 'WORKER_FOCUS',
+                        faction: this.localFaction,
+                        focus: resource
+                    }
+                });
+            }
         }
 
         loop() {
@@ -221,6 +236,44 @@
             if (q.id != null) this.entityById[q.id] = q;
         }
 
+        handleQueenDeath(queen) {
+            if (!queen || queen.markedForDeletion) return;
+            queen.markedForDeletion = true;
+            const fac = queen.faction;
+
+            // Remove this faction's workers
+            this.entities.forEach(e => {
+                if (e instanceof Ant && e.faction === fac && e.type === 'worker') {
+                    e.markedForDeletion = true;
+                }
+            });
+
+            const isHuman = !!(this.humanFactions && this.humanFactions[fac]);
+            if (isHuman) {
+                const cfg = C.factions[fac];
+                if (fac === this.localFaction) {
+                    this.gameOver(false);
+                } else if (cfg && this.ui) {
+                    this.ui.notify(`${cfg.name} Queen defeated!`, false);
+                }
+
+                if (this.isNetworked && this.isAuthoritative && this.net && this.net.connected && this.net.code) {
+                    this.net.send({
+                        type: 'GAME_MESSAGE',
+                        data: {
+                            kind: 'QUEEN_DEAD',
+                            faction: fac
+                        }
+                    });
+                }
+            } else {
+                const cfg = C.factions[fac];
+                if (cfg && this.ui) {
+                    this.ui.notify(`${cfg.name} Queen defeated!`, false);
+                }
+            }
+        }
+
         spawnBuilding(x, y, fac, type='anthill') {
             const costWood = 500;
 
@@ -316,11 +369,13 @@
             const ay = y || q.pos.y + (Math.random()-0.5)*40;
             
             const ant = new Ant(ax, ay, fac, type, this);
-            // Apply default worker focus for local-player workers
-            if (fac === this.localFaction && type === 'worker') {
-                if (this.workerFocus === 'food') ant.job = 'farmer';
-                else if (this.workerFocus === 'wood') ant.job = 'lumberjack';
-                else if (this.workerFocus === 'stone') ant.job = 'miner';
+            // Apply default worker focus per faction for human workers
+            if (type === 'worker') {
+                const focusMap = this.workerFocusByFaction || {};
+                const focus = focusMap[fac] || (fac === this.localFaction ? this.workerFocus : null);
+                if (focus === 'food') ant.job = 'farmer';
+                else if (focus === 'wood') ant.job = 'lumberjack';
+                else if (focus === 'stone') ant.job = 'miner';
             }
             this.entities.push(ant);
             if (ant.id != null) this.entityById[ant.id] = ant;
@@ -592,6 +647,28 @@
         handleNetMessage(msg) {
             const data = msg && msg.data ? msg.data : null;
             if (!data) return;
+            if (data.kind === 'WORKER_FOCUS') {
+                if (!this.isAuthoritative) return;
+                const fac = data.faction;
+                const focus = data.focus;
+                if (!fac || !['food','wood','stone'].includes(focus)) return;
+                if (!this.workerFocusByFaction) this.workerFocusByFaction = {};
+                this.workerFocusByFaction[fac] = focus;
+                return;
+            }
+            if (data.kind === 'QUEEN_DEAD') {
+                // Only non-authoritative clients react to this; host already handled it.
+                if (this.isAuthoritative) return;
+                const fac = data.faction;
+                if (!fac) return;
+                const cfg = C.factions[fac];
+                if (fac === this.localFaction) {
+                    this.gameOver(false);
+                } else if (cfg && this.ui) {
+                    this.ui.notify(`${cfg.name} Queen defeated!`, false);
+                }
+                return;
+            }
             if (data.kind === 'COMMAND') {
                 if (!this.isAuthoritative) {
                     console.log('[NET] handleNetMessage COMMAND ignored (not authoritative)', {

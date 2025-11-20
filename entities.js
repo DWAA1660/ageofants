@@ -109,9 +109,13 @@ class Queen extends Entity {
         this.hp -= amount;
         game.createParticles(this.pos.x, this.pos.y, 'red', 10);
         if (this.hp <= 0) {
-            this.markedForDeletion = true;
-            if (this.faction === game.localFaction) game.gameOver(false);
-            else game.ui.notify(`${C.factions[this.faction].name} Queen defeated!`, false);
+            if (typeof game.handleQueenDeath === 'function') {
+                game.handleQueenDeath(this);
+            } else {
+                this.markedForDeletion = true;
+                if (this.faction === game.localFaction) game.gameOver(false);
+                else game.ui.notify(`${C.factions[this.faction].name} Queen defeated!`, false);
+            }
         }
     }
 }
@@ -500,6 +504,8 @@ class Building extends Entity {
         this.type = type; // 'anthill'
         this.game = gameInstance;
         this.spawnCooldown = 0;
+        this.maxHp = this.type === 'anthill' ? 400 : 200;
+        this.hp = this.maxHp;
     }
 
     update() {
@@ -510,6 +516,14 @@ class Building extends Entity {
                 this.game.spawnAnt('soldier', this.faction, this.pos.x + (Math.random()-0.5)*20, this.pos.y + (Math.random()-0.5)*20);
                 this.spawnCooldown = 300;
             }
+        }
+    }
+
+    takeDamage(amount) {
+        this.hp -= amount;
+        this.game.createParticles(this.pos.x, this.pos.y, this.color, 6);
+        if (this.hp <= 0) {
+            this.markedForDeletion = true;
         }
     }
 

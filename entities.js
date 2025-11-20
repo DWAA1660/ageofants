@@ -154,11 +154,23 @@ class Ant extends Entity {
         
         // Opportunistic auto-aggro for combat units (does not override manual orders)
         if (this.type !== 'worker' && !this.manualCommand) {
-            // Use sight radius so they notice enemies a bit away and move to engage
-            const nearbyEnemy = this.findNearestEnemy(this.sight);
-            if (nearbyEnemy) {
-                this.target = nearbyEnemy;
-                this.state = 'ATTACK';
+            const isHumanFaction = this.game.humanFactions && this.game.humanFactions[this.faction];
+            const isLocalPlayer = this.faction === this.game.localFaction && !!isHumanFaction;
+
+            // For player-controlled units, only auto-acquire when idle.
+            // For AI-controlled units, allow auto-acquire even while roaming.
+            const canAutoAcquire = !isLocalPlayer || this.state === 'IDLE' || !this.target;
+
+            if (canAutoAcquire) {
+                // Prefer enemy troops/queens; fall back to enemy anthill buildings in sight.
+                let autoTarget = this.findNearestEnemy(this.sight);
+                if (!autoTarget) {
+                    autoTarget = this.findNearestEnemyBuilding(this.sight, true); // anthills only
+                }
+                if (autoTarget) {
+                    this.target = autoTarget;
+                    this.state = 'ATTACK';
+                }
             }
         }
 
@@ -208,6 +220,10 @@ class Ant extends Entity {
                 // Fallback to normal nearest-enemy search if no direct queen threat detected
                 if (!enemy) {
                     enemy = this.findNearestEnemy(this.sight * 1.5);
+                }
+                // If no enemy troops/queens are in view, consider enemy anthill buildings
+                if (!enemy) {
+                    enemy = this.findNearestEnemyBuilding(this.sight * 1.5, true);
                 }
 
                 if (enemy) {
@@ -346,6 +362,30 @@ class Ant extends Entity {
                     minD = d;
                     best = e;
                 }
+            }
+        });
+        return best;
+    }
+
+    // Find nearest enemy building (optionally only anthills) within a radius.
+    // This is used as a fallback target when no enemy troops/queens are in range,
+    // so troops are always prioritized over structures.
+    findNearestEnemyBuilding(range, anthillsOnly = false) {
+        let best = null;
+        let minD = range || Infinity;
+        const myTeam = this.game.getTeam ? this.game.getTeam(this.faction) : (this.team ?? null);
+
+        this.game.entities.forEach(e => {
+            if (!(e instanceof Building) || e.markedForDeletion) return;
+            if (anthillsOnly && e.type !== 'anthill') return;
+
+            const otherTeam = this.game.getTeam ? this.game.getTeam(e.faction) : (e.team ?? null);
+            if (myTeam != null && otherTeam != null && otherTeam === myTeam) return;
+
+            const d = this.pos.dist(e.pos);
+            if (d < minD) {
+                minD = d;
+                best = e;
             }
         });
         return best;

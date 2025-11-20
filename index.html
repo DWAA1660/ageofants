@@ -217,7 +217,7 @@
         </div>
 
         <!-- Context Menu (Queen Hatchery) -->
-        <div id="context-menu" class="hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 glass-panel rounded-xl p-5 w-72 pointer-events-auto z-50 shadow-2xl">
+        <div id="context-menu" class="hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 glass-panel rounded-xl p-5 w-72 pointer-events-auto z-40 shadow-2xl">
             <h2 class="text-white text-lg font-bold mb-3 border-b border-gray-600 pb-2 flex justify-between">
                 <span>Queen's Hatchery</span>
                 <span class="text-sm text-gray-400 font-normal">Spawn Units</span>
@@ -236,6 +236,33 @@
                         <span class="text-[11px] text-gray-300">Spawns Soldier every 5s</span>
                     </div>
                     <span class="text-xs retro-text text-amber-300">500🪵</span>
+                </button>
+
+                <div class="h-px bg-gray-600 my-4"></div>
+                <button onclick="window.game.ui.closeMenu()" class="w-full bg-transparent hover:bg-white/10 text-white py-1.5 px-3 rounded-lg text-sm border border-white/20 transition">Close Menu</button>
+            </div>
+        </div>
+
+        <!-- Anthill Menu (Manual Troop Production) -->
+        <div id="anthill-menu" class="hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 glass-panel rounded-xl p-5 w-72 pointer-events-auto z-50 shadow-2xl">
+            <h2 class="text-white text-lg font-bold mb-3 border-b border-gray-600 pb-2 flex justify-between">
+                <span>Anthill Garrison</span>
+                <span class="text-sm text-gray-400 font-normal">Train Troops</span>
+            </h2>
+            <div class="space-y-3">
+                <button onclick="window.game.spawnFromAnthill('soldier')" class="w-full bg-red-800/80 hover:bg-red-700 text-white py-2.5 px-4 rounded-lg text-sm flex justify-between items-center transition border-b-4 border-red-900 active:border-b-0">
+                    <div class="flex flex-col items-start">
+                        <span class="font-bold">Soldier Ant</span>
+                        <span class="text-[11px] text-gray-300">Frontline Fighter</span>
+                    </div>
+                    <span class="text-xs retro-text text-red-300">20🍏 10🪵</span>
+                </button>
+                <button onclick="window.game.spawnFromAnthill('elite')" class="w-full bg-purple-800/80 hover:bg-purple-700 text-white py-2.5 px-4 rounded-lg text-sm flex justify-between items-center transition border-b-4 border-purple-900 active:border-b-0">
+                    <div class="flex flex-col items-start">
+                        <span class="font-bold">Elite Guard</span>
+                        <span class="text-[11px] text-gray-300">Heavy Assault</span>
+                    </div>
+                    <span class="text-xs retro-text text-purple-300">40🍏 20🪵 10🪨</span>
                 </button>
 
                 <div class="h-px bg-gray-600 my-4"></div>

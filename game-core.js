@@ -40,6 +40,7 @@
             this.workerFocus = 'food';    // default focus for new player workers
             this.workerFocusByFaction = {};
             this.pendingBuild = null; // e.g. { type: 'anthill' }
+            this.activeAnthillId = null; // currently selected anthill (for manual spawns)
             this.scoutMode = false;  // player-wide scout mode
             this.aiScout = {};       // per-faction scout mode for AI
             
@@ -55,7 +56,12 @@
                     e.innerText=m; e.style.color = isError?'#ef4444':'#fcd34d';
                     setTimeout(()=>e.innerText='',2500);
                 },
-                closeMenu: () => document.getElementById('context-menu').classList.add('hidden')
+                closeMenu: () => {
+                    const q = document.getElementById('context-menu');
+                    if (q) q.classList.add('hidden');
+                    const a = document.getElementById('anthill-menu');
+                    if (a) a.classList.add('hidden');
+                }
             };
             
             console.log('[GAME] Constructed', {
@@ -390,6 +396,44 @@
             });
         }
 
+        // Manually spawn a combat unit from the currently selected anthill.
+        // Uses the same resource rules as spawnAnt, but chooses the spawn
+        // position around the anthill instead of the queen.
+        spawnFromAnthill(type='soldier') {
+            if (!this.activeAnthillId) {
+                this.ui.notify('No anthill selected.', true);
+                return;
+            }
+            const b = this.entityById[this.activeAnthillId];
+            if (!b || b.markedForDeletion || (typeof Building !== 'undefined' && !(b instanceof Building)) || b.type !== 'anthill') {
+                this.ui.notify('Anthill is no longer available.', true);
+                this.activeAnthillId = null;
+                return;
+            }
+
+            const fac = b.faction || this.localFaction;
+            if (fac !== this.localFaction) return;
+
+            if (this.isNetworked && !this.isAuthoritative && this.net && this.net.connected && this.net.code) {
+                this.net.send({
+                    type: 'GAME_MESSAGE',
+                    data: {
+                        kind: 'COMMAND',
+                        commandType: 'SPAWN_FROM_ANTHILL',
+                        playerId: this.playerId,
+                        faction: this.localFaction,
+                        unitType: type,
+                        buildingId: b.id
+                    }
+                });
+                return;
+            }
+
+            const ax = b.pos.x + (Math.random()-0.5)*20;
+            const ay = b.pos.y + (Math.random()-0.5)*20;
+            this.spawnAnt(type, fac, ax, ay);
+        }
+
         spawnResource(type) {
             const m = 50; // margin
             const x = m + Math.random() * (this.canvas.width - m*2);
@@ -512,16 +556,27 @@
 
                 if (clicked && clicked.faction === this.localFaction) {
                     const isQueen = this.queens && this.queens.includes(clicked);
+                    const isAnthill = (typeof Building !== 'undefined') && (clicked instanceof Building) && clicked.type === 'anthill';
                     console.log('[DEBUG] handleSelect clicked entity', {
                         clickedId: clicked.id,
                         clickedFaction: clicked.faction,
                         isQueen,
+                        isAnthill,
                         localFaction: this.localFaction
                     });
                     if (isQueen) {
-                        // Open Queen Hatchery Menu
-                        document.getElementById('context-menu').classList.remove('hidden');
+                        this.activeAnthillId = null;
+                        this.ui.closeMenu();
+                        const menu = document.getElementById('context-menu');
+                        if (menu) menu.classList.remove('hidden');
+                    } else if (isAnthill) {
+                        this.selectedEntities = [clicked];
+                        this.activeAnthillId = clicked.id;
+                        this.ui.closeMenu();
+                        const aMenu = document.getElementById('anthill-menu');
+                        if (aMenu) aMenu.classList.remove('hidden');
                     } else {
+                        this.activeAnthillId = null;
                         this.selectedEntities = [clicked];
                         this.ui.closeMenu();
                     }
@@ -688,6 +743,34 @@
                         isAuthoritative: this.isAuthoritative
                     });
                     this.spawnAnt(unitType, fac);
+                    return;
+                }
+                if (cmdType === 'SPAWN_FROM_ANTHILL') {
+                    const fac = data.faction || this.localFaction;
+                    const unitType = data.unitType || 'soldier';
+                    const bId = data.buildingId;
+                    const b = this.entityById[bId];
+                    if (!b || b.markedForDeletion || (typeof Building !== 'undefined' && !(b instanceof Building)) || b.type !== 'anthill' || b.faction !== fac) {
+                        console.log('[NET] handleNetMessage SPAWN_FROM_ANTHILL invalid building', {
+                            fromPlayer: data.playerId,
+                            faction: fac,
+                            unitType,
+                            buildingId: bId
+                        });
+                        return;
+                    }
+                    const ax = b.pos.x + (Math.random()-0.5)*20;
+                    const ay = b.pos.y + (Math.random()-0.5)*20;
+                    console.log('[NET] handleNetMessage SPAWN_FROM_ANTHILL', {
+                        fromPlayer: data.playerId,
+                        faction: fac,
+                        unitType,
+                        buildingId: bId,
+                        spawnX: ax,
+                        spawnY: ay,
+                        isAuthoritative: this.isAuthoritative
+                    });
+                    this.spawnAnt(unitType, fac, ax, ay);
                     return;
                 }
                 if (cmdType === 'BUILD') {

@@ -413,6 +413,17 @@
             if (d < 10) {
                 // Single Click
                 const candidates = this.entities.filter(e => e.pos.dist(end) < e.radius + 10 && !e.markedForDeletion);
+                console.log('[DEBUG] handleSelect single click', {
+                    clickPos: { x: end.x, y: end.y },
+                    localFaction: this.localFaction,
+                    candidateCount: candidates.length,
+                    candidates: candidates.slice(0, 6).map(e => ({
+                        id: e.id,
+                        faction: e.faction || null,
+                        isQueen: this.queens && this.queens.includes(e),
+                        isAnt: e instanceof Ant,
+                    }))
+                });
                 
                 // Prioritize own units (Ants/Queens)
                 let clicked = candidates.find(e => e.faction === this.localFaction);
@@ -425,6 +436,12 @@
 
                 if (clicked && clicked.faction === this.localFaction) {
                     const isQueen = this.queens && this.queens.includes(clicked);
+                    console.log('[DEBUG] handleSelect clicked entity', {
+                        clickedId: clicked.id,
+                        clickedFaction: clicked.faction,
+                        isQueen,
+                        localFaction: this.localFaction
+                    });
                     if (isQueen) {
                         // Open Queen Hatchery Menu
                         document.getElementById('context-menu').classList.remove('hidden');
@@ -433,6 +450,10 @@
                         this.ui.closeMenu();
                     }
                 } else {
+                    console.log('[DEBUG] handleSelect no local entity clicked', {
+                        localFaction: this.localFaction,
+                        hadCandidates: candidates.length > 0
+                    });
                     this.ui.closeMenu();
                 }
             } else {
@@ -589,13 +610,15 @@
                 const pos = new Vector(posData.x, posData.y);
                 const ids = data.selectedIds || [];
                 const selection = ids.map(id => this.entityById[id]).filter(e => !!e);
-                console.log('[NET] handleNetMessage RIGHT_CLICK', {
-                    fromPlayer: data.playerId,
-                    faction: data.faction,
-                    pos: posData,
-                    selectionCount: selection.length,
-                    isAuthoritative: this.isAuthoritative
-                });
+                if (DEBUG_NET_VERBOSE) {
+                    console.log('[NET] handleNetMessage RIGHT_CLICK', {
+                        fromPlayer: data.playerId,
+                        faction: data.faction,
+                        pos: posData,
+                        selectionCount: selection.length,
+                        isAuthoritative: this.isAuthoritative
+                    });
+                }
                 this.issueLocalCommand(pos, selection);
             } else if (data.kind === 'SNAPSHOT') {
                 if (!this.isNetworked || this.isAuthoritative) return;
@@ -1080,6 +1103,8 @@
         if (menu) menu.classList.add('hidden');
     };
 
+    const DEBUG_NET_VERBOSE = false;
+
     const net = {
         socket: null,
         connected: false,
@@ -1122,7 +1147,7 @@
                         return;
                     }
                     const t = msg.type;
-                    console.log('[NET] Received WS message', t, msg);
+                    if (DEBUG_NET_VERBOSE) console.log('[NET] Received WS message', t, msg);
                     if (t === 'LOBBY_CREATED') {
                         self.code = msg.code;
                         self.playerId = msg.playerId;
@@ -1170,7 +1195,7 @@
         },
         send(obj) {
             if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
-            console.log('[NET] Sending WS message', obj);
+            if (DEBUG_NET_VERBOSE) console.log('[NET] Sending WS message', obj);
             this.socket.send(JSON.stringify(obj));
         },
         hostLobby() {
@@ -1270,7 +1295,7 @@
     net.onGameMessage = function(msg) {
         const data = msg && msg.data ? msg.data : null;
         if (!data) return;
-        console.log('[NET] onGameMessage', { kind: data.kind, from: msg.from, code: msg.code });
+        if (DEBUG_NET_VERBOSE) console.log('[NET] onGameMessage', { kind: data.kind, from: msg.from, code: msg.code });
         if (data.kind === 'START_GAME') {
             const cfg = data.config || {};
             const aiCount = cfg.aiCount || 0;
@@ -1318,7 +1343,7 @@
                 this.playerColorChoices[msg.from] = faction;
             }
         } else {
-            console.log('[NET] Forwarding game message to Game.handleNetMessage', data.kind);
+            if (DEBUG_NET_VERBOSE) console.log('[NET] Forwarding game message to Game.handleNetMessage', data.kind);
             if (window.game && typeof window.game.handleNetMessage === 'function') {
                 window.game.handleNetMessage(msg);
             }

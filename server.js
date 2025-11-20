@@ -2,6 +2,8 @@ const http = require('http');
 const WebSocket = require('ws');
 const crypto = require('crypto');
 
+const DEBUG_WS_VERBOSE = false;
+
 // Simple WebSocket backend for Ant Empire multiplayer lobbies.
 // Responsibilities:
 // - Create and join lobbies via short codes
@@ -95,12 +97,14 @@ function leaveLobby(ws) {
 }
 
 function broadcastToLobby(lobby, message, excludeWs = null) {
-  console.log('[WS] broadcastToLobby', {
-    code: lobby.code,
-    type: message.type,
-    excludeSender: !!excludeWs,
-    clients: lobby.clients.size,
-  });
+  if (DEBUG_WS_VERBOSE) {
+    console.log('[WS] broadcastToLobby', {
+      code: lobby.code,
+      type: message.type,
+      excludeSender: !!excludeWs,
+      clients: lobby.clients.size,
+    });
+  }
 
   const payload = JSON.stringify(message);
   lobby.clients.forEach((info, client) => {
@@ -128,7 +132,9 @@ wss.on('connection', (ws) => {
 
     const type = msg.type;
 
-    console.log('[WS] received', type, 'from', ws.playerId || '(no id)', 'in lobby', ws.lobbyCode || '(none)');
+    if (DEBUG_WS_VERBOSE) {
+      console.log('[WS] received', type, 'from', ws.playerId || '(no id)', 'in lobby', ws.lobbyCode || '(none)');
+    }
 
     if (type === 'PING') {
       ws.send(JSON.stringify({ type: 'PONG' }));
@@ -195,7 +201,9 @@ wss.on('connection', (ws) => {
         data: msg.data,
       };
       const kind = msg && msg.data && msg.data.kind ? msg.data.kind : '(no kind)';
-      console.log('[WS] GAME_MESSAGE relay', { code, from: ws.playerId, kind });
+      if (DEBUG_WS_VERBOSE || kind === 'START_GAME') {
+        console.log('[WS] GAME_MESSAGE relay', { code, from: ws.playerId, kind });
+      }
       // Broadcast to all clients in the lobby, including the sender/host,
       // so that START_GAME and other critical messages are processed locally too.
       broadcastToLobby(lobby, payload);

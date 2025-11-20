@@ -57,6 +57,16 @@
                 closeMenu: () => document.getElementById('context-menu').classList.add('hidden')
             };
             
+            console.log('[GAME] Constructed', {
+                isNetworked: this.isNetworked,
+                isAuthoritative: this.isAuthoritative,
+                localFaction: this.localFaction,
+                humanFactions: this.humanFactions,
+                aiCount: this.aiCount,
+                difficulty: this.difficulty,
+                playerId: this.playerId,
+            });
+
             // Input
             this.dragStart = null;
             this.currDrag = null;
@@ -206,6 +216,12 @@
             if (fac === this.localFaction) {
                 if (this.playerResources.wood < costWood) {
                     this.ui.notify("Not enough wood for Anthill (500🪵)", true);
+                    console.log('[GAME] spawnBuilding blocked: insufficient wood', {
+                        faction: fac,
+                        localFaction: this.localFaction,
+                        wood: this.playerResources.wood,
+                        costWood
+                    });
                     return null;
                 }
                 this.playerResources.wood -= costWood;
@@ -218,14 +234,23 @@
             const b = new Building(x, y, fac, type, this);
             this.entities.push(b);
             if (b.id != null) this.entityById[b.id] = b;
+            console.log('[GAME] spawnBuilding OK', { id: b.id, faction: fac, type, x, y });
             return b;
         }
 
-        spawnAnt(type, fac='player', x=null, y=null) {
+        spawnAnt(type, fac=null, x=null, y=null) {
+            if (!fac) fac = this.localFaction;
             const cost = C.costs[type];
             
             if (this.isNetworked && !this.isAuthoritative && this.net && this.net.connected && this.net.code) {
                 if (fac !== this.localFaction) return;
+                console.log('[GAME] spawnAnt sending COMMAND (client)', {
+                    type,
+                    faction: fac,
+                    playerId: this.playerId,
+                    isAuthoritative: this.isAuthoritative,
+                    isNetworked: this.isNetworked
+                });
                 this.net.send({
                     type: 'GAME_MESSAGE',
                     data: {
@@ -244,6 +269,13 @@
                     this.playerResources.wood < cost.wood || 
                     this.playerResources.stone < cost.stone) {
                     this.ui.notify("Insufficient Resources!", true);
+                    console.log('[GAME] spawnAnt blocked: insufficient resources', {
+                        type,
+                        faction: fac,
+                        localFaction: this.localFaction,
+                        res: this.playerResources,
+                        cost
+                    });
                     return;
                 }
                 this.playerResources.food -= cost.food;
@@ -253,6 +285,12 @@
                 // AI cost check
                 const q = this.queens.find(qu => qu.faction === fac);
                 if (!q || q.resources.food < cost.food || q.resources.wood < cost.wood || q.resources.stone < cost.stone) {
+                    console.log('[GAME] spawnAnt blocked for non-local faction (insufficient AI resources)', {
+                        type,
+                        faction: fac,
+                        res: q ? q.resources : null,
+                        cost
+                    });
                     return;
                 }
                 q.resources.food -= cost.food;
@@ -275,6 +313,15 @@
             }
             this.entities.push(ant);
             if (ant.id != null) this.entityById[ant.id] = ant;
+            console.log('[GAME] spawnAnt OK', {
+                id: ant.id,
+                type,
+                faction: fac,
+                x: ax,
+                y: ay,
+                isNetworked: this.isNetworked,
+                isAuthoritative: this.isAuthoritative
+            });
         }
 
         spawnResource(type) {
@@ -482,11 +529,23 @@
             const data = msg && msg.data ? msg.data : null;
             if (!data) return;
             if (data.kind === 'COMMAND') {
-                if (!this.isAuthoritative) return;
+                if (!this.isAuthoritative) {
+                    console.log('[NET] handleNetMessage COMMAND ignored (not authoritative)', {
+                        localFaction: this.localFaction,
+                        playerId: this.playerId
+                    });
+                    return;
+                }
                 const cmdType = data.commandType || 'RIGHT_CLICK';
                 if (cmdType === 'SPAWN') {
                     const fac = data.faction || this.localFaction;
                     const unitType = data.unitType || 'worker';
+                    console.log('[NET] handleNetMessage SPAWN', {
+                        fromPlayer: data.playerId,
+                        faction: fac,
+                        unitType,
+                        isAuthoritative: this.isAuthoritative
+                    });
                     this.spawnAnt(unitType, fac);
                     return;
                 }
@@ -494,6 +553,13 @@
                     const fac = data.faction || this.localFaction;
                     const buildType = data.buildType || 'anthill';
                     const posData = data.pos || { x: 0, y: 0 };
+                    console.log('[NET] handleNetMessage BUILD', {
+                        fromPlayer: data.playerId,
+                        faction: fac,
+                        buildType,
+                        pos: posData,
+                        isAuthoritative: this.isAuthoritative
+                    });
                     this.spawnBuilding(posData.x, posData.y, fac, buildType);
                     return;
                 }
@@ -501,6 +567,13 @@
                 const pos = new Vector(posData.x, posData.y);
                 const ids = data.selectedIds || [];
                 const selection = ids.map(id => this.entityById[id]).filter(e => !!e);
+                console.log('[NET] handleNetMessage RIGHT_CLICK', {
+                    fromPlayer: data.playerId,
+                    faction: data.faction,
+                    pos: posData,
+                    selectionCount: selection.length,
+                    isAuthoritative: this.isAuthoritative
+                });
                 this.issueLocalCommand(pos, selection);
             } else if (data.kind === 'SNAPSHOT') {
                 if (!this.isNetworked || this.isAuthoritative) return;

@@ -824,12 +824,12 @@
         const colonySelect = document.getElementById('colony-select');
         const playerTeamSelect = document.getElementById('player-team-select');
         const aiTeamSelect = document.getElementById('ai-team-select');
-        const aiCount = parseInt(aiSelect?.value || '3', 10);
-        const difficulty = parseInt(diffSelect?.value || '3', 10);
+        const aiCountRaw = parseInt(aiSelect?.value || '3', 10);
+        const difficultyRaw = parseInt(diffSelect?.value || '3', 10);
 
         const localFaction = colonySelect?.value || 'player';
-        const playerTeam = parseInt(playerTeamSelect?.value || '1', 10);
-        const aiTeam = parseInt(aiTeamSelect?.value || '2', 10);
+        const playerTeamRaw = parseInt(playerTeamSelect?.value || '1', 10);
+        const aiTeamRaw = parseInt(aiTeamSelect?.value || '2', 10);
 
         const netObj = window.net;
         console.log('[NET] startGame clicked', {
@@ -837,57 +837,86 @@
             connected: !!(netObj && netObj.connected),
             code: netObj && netObj.code,
             isHost: netObj && netObj.isHost,
-            aiCount,
-            difficulty,
+            aiCount: aiCountRaw,
+            difficulty: difficultyRaw,
             localFaction,
-            playerTeam,
-            aiTeam,
+            playerTeam: playerTeamRaw,
+            aiTeam: aiTeamRaw,
         });
         if (netObj && netObj.connected && netObj.code) {
-            // Online: only host can start; broadcast START_GAME so all clients share config.
             if (!netObj.isHost) {
                 const statusEl = document.getElementById('net-status');
                 if (statusEl) statusEl.textContent = 'Waiting for host to start...';
                 return;
             }
 
+            const lobbySettings = netObj.lobbySettings || null;
+            const effectiveAiCount = lobbySettings && lobbySettings.aiCount != null ? lobbySettings.aiCount : aiCountRaw;
+            const effectiveDifficulty = lobbySettings && lobbySettings.difficulty != null ? lobbySettings.difficulty : difficultyRaw;
+            const effectivePlayerTeam = lobbySettings && lobbySettings.playerTeam != null ? lobbySettings.playerTeam : playerTeamRaw;
+            const effectiveAiTeam = lobbySettings && lobbySettings.aiTeam != null ? lobbySettings.aiTeam : aiTeamRaw;
+            const hostFaction = lobbySettings && lobbySettings.hostFaction ? lobbySettings.hostFaction : localFaction;
+
             const allFactions = Object.keys(C.factions || {});
             const playerFactions = {};
             const humanFactions = {};
+            const humanOptions = ['player', 'player2'];
+            const colorChoices = netObj.playerColorChoices || {};
+            const hostId = netObj.playerId;
 
-            playerFactions[netObj.playerId] = localFaction;
-            humanFactions[localFaction] = true;
-
-            const otherPlayerIds = (netObj.players || []).filter(id => id !== netObj.playerId);
-            let idx = 0;
-            otherPlayerIds.forEach(id => {
-                while (idx < allFactions.length && (allFactions[idx] === localFaction || humanFactions[allFactions[idx]])) {
-                    idx++;
+            const assignFaction = function(playerId, requested) {
+                let fac = requested;
+                if (!fac || humanFactions[fac] || !C.factions[fac]) {
+                    fac = humanOptions.find(f => !humanFactions[f]) || null;
                 }
-                const fac = allFactions[idx];
-                if (!fac) return;
-                playerFactions[id] = fac;
+                if (!fac) {
+                    fac = allFactions.find(f => !humanFactions[f]) || 'player';
+                }
+                playerFactions[playerId] = fac;
                 humanFactions[fac] = true;
-                idx++;
+                return fac;
+            };
+
+            const hostRequested = colorChoices[hostId] || hostFaction;
+            assignFaction(hostId, hostRequested);
+
+            const otherPlayerIds = (netObj.players || []).filter(id => id !== hostId);
+            otherPlayerIds.forEach(id => {
+                const requested = colorChoices[id] || null;
+                assignFaction(id, requested);
+            });
+
+            const enemyPool = ['enemy1', 'enemy2', 'enemy3', 'enemy4', 'enemy5', 'enemy6'];
+            const configuredColors = lobbySettings && Array.isArray(lobbySettings.aiColors) ? lobbySettings.aiColors : [];
+            const chosenAIs = [];
+
+            configuredColors.forEach(f => {
+                if (!f) return;
+                if (!humanFactions[f] && enemyPool.indexOf(f) !== -1 && chosenAIs.indexOf(f) === -1) {
+                    chosenAIs.push(f);
+                }
+            });
+            enemyPool.forEach(f => {
+                if (chosenAIs.length >= effectiveAiCount) return;
+                if (!humanFactions[f] && chosenAIs.indexOf(f) === -1) {
+                    chosenAIs.push(f);
+                }
             });
 
             const teams = {};
-            Object.keys(humanFactions).forEach(f => { teams[f] = playerTeam; });
-            const aiFactions = ['enemy1', 'enemy2', 'enemy3', 'enemy4', 'enemy5', 'enemy6'];
-            aiFactions.forEach(f => {
-                if (!humanFactions[f]) teams[f] = aiTeam;
-            });
+            Object.keys(humanFactions).forEach(f => { teams[f] = effectivePlayerTeam; });
+            chosenAIs.slice(0, effectiveAiCount).forEach(f => { teams[f] = effectiveAiTeam; });
 
             console.log('[NET] Host sending START_GAME', {
-                aiCount,
-                difficulty,
-                localFaction,
-                playerTeam,
-                aiTeam,
+                aiCount: effectiveAiCount,
+                difficulty: effectiveDifficulty,
+                localFaction: hostFaction,
+                playerTeam: effectivePlayerTeam,
+                aiTeam: effectiveAiTeam,
                 playerFactions,
                 humanFactions,
                 teams,
-                hostId: netObj.playerId,
+                hostId,
                 players: netObj.players,
             });
 
@@ -896,40 +925,39 @@
                 data: {
                     kind: 'START_GAME',
                     config: {
-                        aiCount,
-                        difficulty,
+                        aiCount: effectiveAiCount,
+                        difficulty: effectiveDifficulty,
                         teams,
                         humanFactions,
                         playerFactions,
-                        hostId: netObj.playerId
+                        hostId
                     }
                 }
             });
             return;
         }
 
-        // Offline single-player
         const teams = {};
-        teams[localFaction] = playerTeam;
+        teams[localFaction] = playerTeamRaw;
         const aiFactions = ['enemy1', 'enemy2', 'enemy3', 'enemy4', 'enemy5', 'enemy6'];
-        for (let i = 0; i < aiCount; i++) {
+        for (let i = 0; i < aiCountRaw; i++) {
             const fac = aiFactions[i];
             if (!fac) break;
-            teams[fac] = aiTeam;
+            teams[fac] = aiTeamRaw;
         }
 
         const humanFactions = {};
         humanFactions[localFaction] = true;
 
         console.log('[NET] Starting offline game', {
-            aiCount,
-            difficulty,
+            aiCount: aiCountRaw,
+            difficulty: difficultyRaw,
             teams,
             localFaction,
             humanFactions,
         });
 
-        window.game = new Game({ aiCount, difficulty, teams, localFaction, humanFactions });
+        window.game = new Game({ aiCount: aiCountRaw, difficulty: difficultyRaw, teams, localFaction, humanFactions });
 
         const menu = document.getElementById('start-menu');
         if (menu) menu.classList.add('hidden');
@@ -942,6 +970,8 @@
         playerId: null,
         players: [],
         isHost: false,
+        lobbySettings: null,
+        playerColorChoices: {},
         onGameMessage: null,
         connect(url) {
             if (this.socket && this.connected) {
@@ -981,10 +1011,28 @@
                         self.playerId = msg.playerId;
                         self.isHost = true;
                         self.players = [msg.playerId];
+                        if (!self.playerColorChoices) self.playerColorChoices = {};
+                        const colonySelect = document.getElementById('colony-select');
+                        if (colonySelect) {
+                            self.playerColorChoices[self.playerId] = colonySelect.value || 'player';
+                        }
+                        if (typeof self.broadcastLobbySettings === 'function') {
+                            self.broadcastLobbySettings();
+                        }
                     } else if (t === 'LOBBY_JOINED') {
                         self.code = msg.code;
                         self.playerId = msg.playerId;
                         self.isHost = false;
+                        const colonySelect = document.getElementById('colony-select');
+                        if (colonySelect && self.connected) {
+                            self.send({
+                                type: 'GAME_MESSAGE',
+                                data: {
+                                    kind: 'PLAYER_COLOR_CHOICE',
+                                    faction: colonySelect.value || 'player'
+                                }
+                            });
+                        }
                     } else if (t === 'LOBBY_PLAYERS') {
                         self.players = msg.players || [];
                     } else if (t === 'PLAYER_JOINED') {
@@ -1026,6 +1074,79 @@
             if (codeEl) codeEl.textContent = this.code || '-';
             if (idEl) idEl.textContent = this.playerId || '-';
             if (playersEl) playersEl.textContent = this.players.length ? this.players.join(', ') : '-';
+        },
+        broadcastLobbySettings() {
+            if (!this.connected || !this.code || !this.isHost) return;
+            const aiSelect = document.getElementById('ai-count-select');
+            const diffSelect = document.getElementById('difficulty-select');
+            const playerTeamSelect = document.getElementById('player-team-select');
+            const aiTeamSelect = document.getElementById('ai-team-select');
+            const colonySelect = document.getElementById('colony-select');
+            const aiColorIds = ['ai-color-1','ai-color-2','ai-color-3','ai-color-4','ai-color-5','ai-color-6'];
+            const aiColors = aiColorIds.map(id => {
+                const el = document.getElementById(id);
+                return el ? (el.value || '') : '';
+            });
+            const aiCount = parseInt(aiSelect?.value || '3', 10);
+            const difficulty = parseInt(diffSelect?.value || '3', 10);
+            const playerTeam = parseInt(playerTeamSelect?.value || '1', 10);
+            const aiTeam = parseInt(aiTeamSelect?.value || '2', 10);
+            const hostFaction = colonySelect?.value || 'player';
+            const settings = {
+                aiCount,
+                difficulty,
+                playerTeam,
+                aiTeam,
+                hostFaction,
+                aiColors
+            };
+            this.applyLobbySettings(settings);
+            this.send({
+                type: 'GAME_MESSAGE',
+                data: {
+                    kind: 'LOBBY_SETTINGS',
+                    settings
+                }
+            });
+        },
+        applyLobbySettings(settings) {
+            this.lobbySettings = settings || null;
+            const s = this.lobbySettings || {};
+            const isNetLobby = this.connected && this.code;
+            const isHost = this.isHost;
+            const aiSelect = document.getElementById('ai-count-select');
+            const diffSelect = document.getElementById('difficulty-select');
+            const playerTeamSelect = document.getElementById('player-team-select');
+            const aiTeamSelect = document.getElementById('ai-team-select');
+            const aiColorIds = ['ai-color-1','ai-color-2','ai-color-3','ai-color-4','ai-color-5','ai-color-6'];
+            if (aiSelect) {
+                if (!isHost && isNetLobby && s.aiCount != null) aiSelect.value = String(s.aiCount);
+                aiSelect.disabled = !!(isNetLobby && !isHost);
+            }
+            if (diffSelect) {
+                if (!isHost && isNetLobby && s.difficulty != null) {
+                    diffSelect.value = String(s.difficulty);
+                    const lbl = document.getElementById('lobby-diff-value');
+                    if (lbl) lbl.textContent = String(s.difficulty);
+                }
+                diffSelect.disabled = !!(isNetLobby && !isHost);
+            }
+            if (playerTeamSelect) {
+                if (!isHost && isNetLobby && s.playerTeam != null) playerTeamSelect.value = String(s.playerTeam);
+                playerTeamSelect.disabled = !!(isNetLobby && !isHost);
+            }
+            if (aiTeamSelect) {
+                if (!isHost && isNetLobby && s.aiTeam != null) aiTeamSelect.value = String(s.aiTeam);
+                aiTeamSelect.disabled = !!(isNetLobby && !isHost);
+            }
+            aiColorIds.forEach((id, idx) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (!isHost && isNetLobby && s.aiColors && s.aiColors[idx] != null) {
+                    el.value = s.aiColors[idx] || '';
+                }
+                el.disabled = !!(isNetLobby && !isHost);
+            });
         }
     };
 
@@ -1070,6 +1191,15 @@
 
             const menu = document.getElementById('start-menu');
             if (menu) menu.classList.add('hidden');
+        } else if (data.kind === 'LOBBY_SETTINGS') {
+            const settings = data.settings || {};
+            this.applyLobbySettings(settings);
+        } else if (data.kind === 'PLAYER_COLOR_CHOICE') {
+            const faction = data.faction || 'player';
+            if (!this.playerColorChoices) this.playerColorChoices = {};
+            if (msg.from) {
+                this.playerColorChoices[msg.from] = faction;
+            }
         } else {
             console.log('[NET] Forwarding game message to Game.handleNetMessage', data.kind);
             if (window.game && typeof window.game.handleNetMessage === 'function') {
@@ -1079,6 +1209,49 @@
     };
 
     window.net = net;
+
+    (function() {
+        const colonySelect = document.getElementById('colony-select');
+        if (colonySelect) {
+            colonySelect.addEventListener('change', function() {
+                const fac = colonySelect.value;
+                const n = window.net;
+                if (n && n.connected && n.code) {
+                    n.send({
+                        type: 'GAME_MESSAGE',
+                        data: {
+                            kind: 'PLAYER_COLOR_CHOICE',
+                            faction: fac
+                        }
+                    });
+                }
+            });
+        }
+        const aiSelect = document.getElementById('ai-count-select');
+        const diffSelect = document.getElementById('difficulty-select');
+        const playerTeamSelect = document.getElementById('player-team-select');
+        const aiTeamSelect = document.getElementById('ai-team-select');
+        const aiColorIds = ['ai-color-1','ai-color-2','ai-color-3','ai-color-4','ai-color-5','ai-color-6'];
+        function hostChanged() {
+            const n = window.net;
+            if (n && n.connected && n.code && n.isHost && typeof n.broadcastLobbySettings === 'function') {
+                n.broadcastLobbySettings();
+            }
+        }
+        [aiSelect, playerTeamSelect, aiTeamSelect].forEach(function(el) {
+            if (!el) return;
+            el.addEventListener('change', hostChanged);
+        });
+        if (diffSelect) {
+            diffSelect.addEventListener('change', hostChanged);
+            diffSelect.addEventListener('input', hostChanged);
+        }
+        aiColorIds.forEach(function(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('change', hostChanged);
+        });
+    })();
 
     window.connectNet = function() {
         const urlInput = document.getElementById('net-url-input');

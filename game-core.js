@@ -415,7 +415,7 @@
                 const candidates = this.entities.filter(e => e.pos.dist(end) < e.radius + 10 && !e.markedForDeletion);
                 
                 // Prioritize own units (Ants/Queens)
-                let clicked = candidates.find(e => e.faction === this.localFaction && (e instanceof Ant || e instanceof Queen));
+                let clicked = candidates.find(e => e.faction === this.localFaction);
                 
                 // Fallback: if no own unit, take the closest one (could be enemy or resource)
                 if (!clicked && candidates.length > 0) {
@@ -424,7 +424,8 @@
                 }
 
                 if (clicked && clicked.faction === this.localFaction) {
-                    if (clicked instanceof Queen) {
+                    const isQueen = this.queens && this.queens.includes(clicked);
+                    if (isQueen) {
                         // Open Queen Hatchery Menu
                         document.getElementById('context-menu').classList.remove('hidden');
                     } else {

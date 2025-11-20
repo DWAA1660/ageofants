@@ -357,6 +357,9 @@
         }
 
         resize() {
+            // Host/offline: world size follows window size.
+            // Networked clients (non-authoritative) get their size from snapshots instead.
+            if (this.isNetworked && !this.isAuthoritative) return;
             this.canvas.width = window.innerWidth;
             this.canvas.height = window.innerHeight;
         }
@@ -694,6 +697,8 @@
 
             const snapshot = {
                 tick: this.tick,
+                worldWidth: this.canvas.width,
+                worldHeight: this.canvas.height,
                 entities: entitiesSnap,
                 factionResources,
                 localFaction: this.localFaction
@@ -711,6 +716,16 @@
         applyLatestSnapshot() {
             const snap = this.latestSnapshot;
             if (!snap) return;
+
+            // Align client canvas size with host's world size when provided
+            if (this.isNetworked && !this.isAuthoritative) {
+                const w = snap.worldWidth || this.canvas.width;
+                const h = snap.worldHeight || this.canvas.height;
+                if (w > 0 && h > 0) {
+                    this.canvas.width = w;
+                    this.canvas.height = h;
+                }
+            }
 
             const prevSelectedIds = this.selectedEntities.map(e => e.id);
             const idMap = {};
@@ -828,7 +843,14 @@
                 // 1b. Strategic buildings: AI builds anthills when it has enough wood and few anthills
                 const needFirstAnthill = myBuildings.length === 0;
                 const needMoreAnthills = diff >= 5 && myBuildings.length < Math.ceil(diff / 3);
-                if ((needFirstAnthill || needMoreAnthills) && r.wood >= 500) {
+
+                if (needFirstAnthill) {
+                    // Guarantee at least one anthill per AI queen: cheat in enough wood if needed.
+                    if (r.wood < 500) r.wood = 500;
+                    const offsetX = (Math.random()-0.5) * 80;
+                    const offsetY = (Math.random()-0.5) * 80;
+                    this.spawnBuilding(q.pos.x + offsetX, q.pos.y + offsetY, q.faction, 'anthill');
+                } else if (needMoreAnthills && r.wood >= 500) {
                     const offsetX = (Math.random()-0.5) * 80;
                     const offsetY = (Math.random()-0.5) * 80;
                     this.spawnBuilding(q.pos.x + offsetX, q.pos.y + offsetY, q.faction, 'anthill');

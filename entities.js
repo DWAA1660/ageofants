@@ -397,6 +397,19 @@ class Ant extends Entity {
             // Pathing (Movement)
             const dir = this.target.pos.sub(this.pos).normalize();
             this.pos = this.pos.add(dir.mult(this.speed));
+
+            // Clamp to canvas bounds so ants never leave the visible map
+            const game = this.game;
+            if (game && game.canvas) {
+                const pad = this.radius + 1;
+                const maxX = Math.max(pad, game.canvas.width - pad);
+                const maxY = Math.max(pad, game.canvas.height - pad);
+                if (this.pos.x < pad) this.pos.x = pad;
+                else if (this.pos.x > maxX) this.pos.x = maxX;
+                if (this.pos.y < pad) this.pos.y = pad;
+                else if (this.pos.y > maxY) this.pos.y = maxY;
+            }
+
             this.angle = Math.atan2(dir.y, dir.x);
             this.legOffset += 0.5; // for leg animation
         }

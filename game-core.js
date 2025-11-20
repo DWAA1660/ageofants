@@ -832,6 +832,17 @@
         const aiTeam = parseInt(aiTeamSelect?.value || '2', 10);
 
         const netObj = window.net;
+        console.log('[NET] startGame clicked', {
+            hasNet: !!netObj,
+            connected: !!(netObj && netObj.connected),
+            code: netObj && netObj.code,
+            isHost: netObj && netObj.isHost,
+            aiCount,
+            difficulty,
+            localFaction,
+            playerTeam,
+            aiTeam,
+        });
         if (netObj && netObj.connected && netObj.code) {
             // Online: only host can start; broadcast START_GAME so all clients share config.
             if (!netObj.isHost) {
@@ -867,6 +878,19 @@
                 if (!humanFactions[f]) teams[f] = aiTeam;
             });
 
+            console.log('[NET] Host sending START_GAME', {
+                aiCount,
+                difficulty,
+                localFaction,
+                playerTeam,
+                aiTeam,
+                playerFactions,
+                humanFactions,
+                teams,
+                hostId: netObj.playerId,
+                players: netObj.players,
+            });
+
             netObj.send({
                 type: 'GAME_MESSAGE',
                 data: {
@@ -897,6 +921,14 @@
         const humanFactions = {};
         humanFactions[localFaction] = true;
 
+        console.log('[NET] Starting offline game', {
+            aiCount,
+            difficulty,
+            teams,
+            localFaction,
+            humanFactions,
+        });
+
         window.game = new Game({ aiCount, difficulty, teams, localFaction, humanFactions });
 
         const menu = document.getElementById('start-menu');
@@ -921,10 +953,12 @@
                 this.socket = ws;
                 const self = this;
                 ws.onopen = function() {
+                    console.log('[NET] WebSocket open', url);
                     self.connected = true;
                     self.updateUI();
                 };
                 ws.onclose = function() {
+                    console.log('[NET] WebSocket closed');
                     self.connected = false;
                     self.code = null;
                     self.playerId = null;
@@ -937,9 +971,11 @@
                     try {
                         msg = JSON.parse(evt.data);
                     } catch (e) {
+                        console.warn('[NET] Failed to parse WebSocket message', e, evt && evt.data);
                         return;
                     }
                     const t = msg.type;
+                    console.log('[NET] Received WS message', t, msg);
                     if (t === 'LOBBY_CREATED') {
                         self.code = msg.code;
                         self.playerId = msg.playerId;
@@ -969,6 +1005,7 @@
         },
         send(obj) {
             if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+            console.log('[NET] Sending WS message', obj);
             this.socket.send(JSON.stringify(obj));
         },
         hostLobby() {
@@ -995,6 +1032,7 @@
     net.onGameMessage = function(msg) {
         const data = msg && msg.data ? msg.data : null;
         if (!data) return;
+        console.log('[NET] onGameMessage', { kind: data.kind, from: msg.from, code: msg.code });
         if (data.kind === 'START_GAME') {
             const cfg = data.config || {};
             const aiCount = cfg.aiCount || 0;
@@ -1006,6 +1044,13 @@
 
             const localFaction = playerFactions[this.playerId] || 'player';
             const isAuthoritative = !!hostId && hostId === this.playerId;
+
+            console.log('[NET] START_GAME received', {
+                cfg,
+                localFaction,
+                isAuthoritative,
+                playerId: this.playerId,
+            });
 
             if (window.game) {
                 try { location.reload(); } catch (e) {}
@@ -1026,6 +1071,7 @@
             const menu = document.getElementById('start-menu');
             if (menu) menu.classList.add('hidden');
         } else {
+            console.log('[NET] Forwarding game message to Game.handleNetMessage', data.kind);
             if (window.game && typeof window.game.handleNetMessage === 'function') {
                 window.game.handleNetMessage(msg);
             }

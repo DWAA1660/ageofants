@@ -53,6 +53,7 @@ function joinLobby(code, ws, playerInfo) {
   if (!lobby) return null;
 
   lobby.clients.set(ws, playerInfo);
+  console.log('[WS] joinLobby', code, 'now has', lobby.clients.size, 'clients');
   ws.lobbyCode = code;
   ws.playerId = playerInfo.id;
 
@@ -75,6 +76,8 @@ function leaveLobby(ws) {
   const playerInfo = lobby.clients.get(ws);
   lobby.clients.delete(ws);
 
+  console.log('[WS] leaveLobby', code, 'now has', lobby.clients.size, 'clients');
+
   if (playerInfo) {
     broadcastToLobby(lobby, {
       type: 'PLAYER_LEFT',
@@ -92,6 +95,13 @@ function leaveLobby(ws) {
 }
 
 function broadcastToLobby(lobby, message, excludeWs = null) {
+  console.log('[WS] broadcastToLobby', {
+    code: lobby.code,
+    type: message.type,
+    excludeSender: !!excludeWs,
+    clients: lobby.clients.size,
+  });
+
   const payload = JSON.stringify(message);
   lobby.clients.forEach((info, client) => {
     if (client.readyState === WebSocket.OPEN && client !== excludeWs) {
@@ -118,6 +128,8 @@ wss.on('connection', (ws) => {
 
     const type = msg.type;
 
+    console.log('[WS] received', type, 'from', ws.playerId || '(no id)', 'in lobby', ws.lobbyCode || '(none)');
+
     if (type === 'PING') {
       ws.send(JSON.stringify({ type: 'PONG' }));
       return;
@@ -134,6 +146,7 @@ wss.on('connection', (ws) => {
         code: lobby.code,
         playerId,
       }));
+      console.log('[WS] CREATE_LOBBY', { code: lobby.code, playerId });
       return;
     }
 
@@ -159,6 +172,7 @@ wss.on('connection', (ws) => {
         code,
         players,
       }));
+      console.log('[WS] JOIN_LOBBY', { code, playerId, players });
       return;
     }
 
@@ -180,7 +194,11 @@ wss.on('connection', (ws) => {
         from: ws.playerId,
         data: msg.data,
       };
-      broadcastToLobby(lobby, payload, ws);
+      const kind = msg && msg.data && msg.data.kind ? msg.data.kind : '(no kind)';
+      console.log('[WS] GAME_MESSAGE relay', { code, from: ws.playerId, kind });
+      // Broadcast to all clients in the lobby, including the sender/host,
+      // so that START_GAME and other critical messages are processed locally too.
+      broadcastToLobby(lobby, payload);
       return;
     }
 

@@ -691,7 +691,9 @@
                     x: e.pos.x,
                     y: e.pos.y,
                     hp: typeof e.hp === 'number' ? e.hp : null,
-                    amount: e instanceof Resource ? e.amount : null
+                    amount: e instanceof Resource ? e.amount : null,
+                    carryingType: e instanceof Ant && e.carrying ? e.carrying.type : null,
+                    carryingAmount: e instanceof Ant && e.carrying ? e.carrying.amount : null
                 };
             });
 
@@ -759,6 +761,15 @@
                 }
                 if (se.kind === 'resource' && typeof se.amount === 'number') {
                     ent.amount = se.amount;
+                }
+
+                if (se.kind === 'ant') {
+                    if (se.carryingType) {
+                        const amt = typeof se.carryingAmount === 'number' ? se.carryingAmount : 1;
+                        ent.carrying = { type: se.carryingType, amount: amt };
+                    } else {
+                        ent.carrying = null;
+                    }
                 }
 
                 newEntities.push(ent);
@@ -840,12 +851,12 @@
                     this.spawnAnt('soldier', q.faction);
                 }
 
-                // 1b. Strategic buildings: AI builds anthills when it has enough wood and few anthills
+                // 1b. Strategic buildings: AI builds anthills based on difficulty
+                const maxAnthills = 1 + Math.floor(diff / 3); // diff 1-3: 1-2, diff 10: up to 4
                 const needFirstAnthill = myBuildings.length === 0;
-                const needMoreAnthills = diff >= 5 && myBuildings.length < Math.ceil(diff / 3);
+                const needMoreAnthills = myBuildings.length < maxAnthills;
 
                 if (needFirstAnthill) {
-                    // Guarantee at least one anthill per AI queen: cheat in enough wood if needed.
                     if (r.wood < 500) r.wood = 500;
                     const offsetX = (Math.random()-0.5) * 80;
                     const offsetY = (Math.random()-0.5) * 80;
@@ -870,16 +881,31 @@
                     r.stone += 1 * incomeScale;
                 }
 
-                // 3. Coordinated attack waves toward the player's team from any non-player faction
-                //    Do not allow waves in the first ~20 seconds to give the player a grace period.
-                const playerTeam = this.getTeam(this.localFaction);
+                // 3. Coordinated attack waves toward any enemy-team queen (all human players on enemy teams)
+                //    Do not allow waves in the first ~20 seconds to give the players a grace period.
                 const qTeam = this.getTeam(q.faction);
-                const globalTargetQueen = playerQueen && qTeam !== playerTeam ? playerQueen : null;
+                const enemyQueens = this.queens.filter(qq => {
+                    if (qq.markedForDeletion) return false;
+                    const tTeam = this.getTeam(qq.faction);
+                    return tTeam != null && qTeam != null && tTeam !== qTeam;
+                });
+
+                // Choose the closest enemy queen as the focal target for this AI queen's wave
+                let globalTargetQueen = null;
+                if (enemyQueens.length > 0) {
+                    globalTargetQueen = enemyQueens.reduce((best, cand) => {
+                        if (!best) return cand;
+                        const dBest = best.pos.dist(q.pos);
+                        const dCand = cand.pos.dist(q.pos);
+                        return dCand < dBest ? cand : best;
+                    }, null);
+                }
+
                 if (globalTargetQueen && this.frameCount >= 20 * 60 && this.frameCount % waveInterval === 0) {
                     const combatAnts = myAnts.filter(a => a.type !== 'worker');
                     const required = baseWaveSize + diff; // higher difficulty = bigger waves
                     if (combatAnts.length >= required) {
-                        // All AI factions focus the same target queen for stronger coordinated pushes
+                        // All combat ants of this AI queen focus the chosen enemy queen
                         combatAnts.forEach(a => {
                             a.manualCommand = true;
                             a.target = globalTargetQueen;

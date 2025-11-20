@@ -118,8 +118,26 @@
             const w = this.canvas.width;
             const h = this.canvas.height;
 
-            // Spawn player Queen
-            this.spawnQueen(100, 100, this.localFaction);
+            const humanListRaw = this.humanFactions ? Object.keys(this.humanFactions) : [];
+            const humanList = humanListRaw.length ? humanListRaw : [this.localFaction];
+            const orderedHumans = [];
+            if (humanList.indexOf(this.localFaction) !== -1) orderedHumans.push(this.localFaction);
+            humanList.forEach(f => {
+                if (f !== this.localFaction && orderedHumans.indexOf(f) === -1) orderedHumans.push(f);
+            });
+
+            const humanPositions = [
+                { x: 100, y: 100 },              // primary local spawn
+                { x: w - 100, y: h - 100 },      // opposite corner for 2nd human
+                { x: w / 2, y: h - 120 },        // bottom-center for 3rd human
+                { x: w - 120, y: h / 2 },        // mid-right
+                { x: 120, y: h / 2 }             // mid-left
+            ];
+
+            orderedHumans.forEach((fac, idx) => {
+                const pos = humanPositions[idx] || humanPositions[humanPositions.length - 1] || { x: 100, y: 100 };
+                this.spawnQueen(pos.x, pos.y, fac);
+            });
 
             // Up to 6 enemy factions placed around the map
             const aiFactions = ['enemy1', 'enemy2', 'enemy3', 'enemy4', 'enemy5', 'enemy6'];
@@ -151,10 +169,11 @@
             // Difficulty scaling for AI economies and workers
             const diff = Math.max(1, Math.min(10, this.difficulty || 3));
 
-            // AI advantage: start each non-local queen with difficulty * 5 workers
+            // AI advantage: start each non-human queen with difficulty * 5 workers
+            const isHumanFaction = (fac) => !!(this.humanFactions && this.humanFactions[fac]);
             const startWorkers = diff * 5;
             this.queens.forEach(q => {
-                if (q.faction === this.localFaction) return;
+                if (isHumanFaction(q.faction)) return;
                 for (let i=0; i<startWorkers; i++) {
                     // Free starting workers for AI: bypass cost checks
                     const ax = q.pos.x + (Math.random()-0.5)*60;
@@ -166,7 +185,7 @@
             // AI starting resources: scale with difficulty (e.g. level 10 ≈ 1000 of each)
             const baseStartRes = 100 * diff;
             this.queens.forEach(q => {
-                if (q.faction === this.localFaction) return;
+                if (isHumanFaction(q.faction)) return;
                 q.resources.food = baseStartRes;
                 q.resources.wood = baseStartRes;
                 q.resources.stone = baseStartRes;

@@ -33,22 +33,33 @@ class Resource extends Entity {
     draw(ctx) {
         ctx.save();
         ctx.translate(this.pos.x, this.pos.y);
+        
+        // Scale based on amount remaining
+        const scale = 0.5 + (0.5 * (this.amount / this.maxAmount));
+        ctx.scale(scale, scale);
 
-        // Use the same icons as the top UI for resources
-        const cfg = C.resources[this.type];
-        const symbol = cfg && cfg.symbol ? cfg.symbol : '●';
-
-        const ratio = this.maxAmount > 0 ? (this.amount / this.maxAmount) : 1;
-        const alpha = 0.6 + 0.4 * Math.max(0, Math.min(1, ratio));
-        const fontSize = 14 + 6 * Math.max(0, Math.min(1, ratio));
-
-        ctx.globalAlpha = alpha;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.font = `${fontSize}px system-ui, emoji`;
-        ctx.fillText(symbol, 0, 0);
+        // Draw the resource shape
+        ctx.globalAlpha = 0.8 + (0.2 * (this.amount / this.maxAmount));
+        if(this.type === 'food') {
+            ctx.fillStyle = '#22c55e';
+            ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = '#14532d'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(-3, -3); ctx.lineTo(3, 3); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(-3, 3); ctx.lineTo(3, -3); ctx.stroke();
+        } else if (this.type === 'wood') {
+            ctx.fillStyle = '#854d0e';
+            ctx.fillRect(-this.radius, -this.radius/2, this.radius*2, this.radius);
+            ctx.strokeStyle = '#451a03';
+            ctx.strokeRect(-this.radius, -this.radius/2, this.radius*2, this.radius);
+        } else if (this.type === 'stone') {
+            ctx.fillStyle = '#6b7280';
+            ctx.beginPath();
+            ctx.moveTo(0, -this.radius); ctx.lineTo(this.radius, 0); ctx.lineTo(0, this.radius);
+            ctx.lineTo(-this.radius, 0); ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = '#374151'; ctx.stroke();
+        }
         ctx.globalAlpha = 1;
-
         ctx.restore();
     }
 }
@@ -461,31 +472,9 @@ class Ant extends Entity {
 
         ctx.rotate(this.angle);
 
-        // Unit Body and Type Visuals (sprite if available, otherwise simple ant shape)
-        let drewSprite = false;
-        if (this.game && this.game.sprites) {
-            let key = null;
-            if (this.type === 'worker') key = 'ant_worker';
-            else if (this.type === 'soldier') key = 'ant_soldier';
-            else if (this.type === 'elite') key = 'ant_elite';
-            const img = key ? this.game.sprites[key] : null;
-            if (img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
-                const size = this.radius * 3;
-                ctx.drawImage(img, -size/2, -size/2, size, size);
-                drewSprite = true;
-            }
-        }
-        if (!drewSprite) {
-            ctx.fillStyle = this.color;
-            ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2); ctx.fill();
-
-            // Overlay ant emoji to match the top UI icon
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = `${this.radius * 2}px system-ui, emoji`;
-            ctx.fillStyle = '#000';
-            ctx.fillText('🐜', 0, 0);
-        }
+        // Unit Body and Type Visuals (simple ant shape)
+        ctx.fillStyle = this.color;
+        ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2); ctx.fill();
 
         // HP bar for combat units
         if (this.type !== 'worker') {
